@@ -7,23 +7,26 @@
 # (or the vite dev server). No database step is needed either: every route is a
 # stateless Inertia::render and the failure injection uses the cache.
 #
-# Safe to run repeatedly. Called by the Playwright global-setup and webServer,
-# and by hand before serving the app manually.
+# Safe to run repeatedly. Called by the Playwright webServer command and by hand
+# before serving the app manually.
 
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
-# Seed .env before composer install: its post-autoload package:discover boots the
-# app, which fails on a fresh checkout when no .env exists yet.
 if [ ! -f .env ]; then
   cp .env.example .env
 fi
 
+# --no-scripts skips composer's post-autoload package:discover, which boots the app
+# and would run before the app key exists. Discovery runs explicitly below, after
+# the environment is fully seeded, and with -v so any boot error is visible.
 if [ ! -f vendor/autoload.php ]; then
-  composer install --no-interaction --no-progress
+  composer install --no-interaction --no-progress --no-scripts
 fi
 
 if ! grep -q '^APP_KEY=base64:' .env; then
   php artisan key:generate --ansi
 fi
+
+php artisan package:discover --ansi -v
