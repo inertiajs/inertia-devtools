@@ -27,11 +27,12 @@ export default defineConfig({
   },
   projects: [{ name: 'chromium' }],
   webServer: {
-    // global-setup.ts bootstraps the app (composer, .env, build) before this runs.
-    command: 'php artisan serve --port=13337',
+    // Playwright starts the webServer before globalSetup, so it must bootstrap the app
+    // itself. cwd is the app dir, so every command runs there without a chained `cd`.
+    command: 'bash setup.sh && pnpm install && pnpm build && php artisan serve --port=13337',
     cwd: appDir,
     url: 'http://127.0.0.1:13337/devtools',
     reuseExistingServer: true,
-    timeout: 120 * 1000,
+    timeout: 180 * 1000,
   },
 })
