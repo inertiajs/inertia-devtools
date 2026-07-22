@@ -32,7 +32,9 @@ export default defineConfig({
   // one server for vite (writes the `hot` file the @vite directive reads), one for Laravel.
   webServer: [
     {
-      command: 'pnpm install && pnpm dev',
+      // laravel-vite-plugin refuses to start the HMR dev server when CI is set, but the
+      // extension needs it for the devtools instrumentation, so bypass that guard.
+      command: 'pnpm install && LARAVEL_BYPASS_ENV_CHECK=1 pnpm dev',
       cwd: appDir,
       url: 'http://localhost:4242/@vite/client',
       reuseExistingServer: true,
