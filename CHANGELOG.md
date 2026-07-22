@@ -1,13 +1,7 @@
-# Changelog
+# Release Notes
 
-All notable changes to Inertia.js DevTools for Chrome will be documented in this file.
+## [Unreleased](https://github.com/inertiajs/inertia-devtools/compare/v0.1.0...1.x)
 
-This project follows semantic versioning where practical while the Chrome extension and server recorder stabilize.
+## [v0.1.0](https://github.com/inertiajs/inertia-devtools/compare/...v0.1.0) - 202x-xx-xx
 
-## Unreleased
-
-- Seed OSS documentation for installation, security reporting, release preparation, and Chrome Web Store review.
-
-## 0.2.1
-
-- Current internal review build.
+Initial pre-release.
