@@ -26,13 +26,24 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   projects: [{ name: 'chromium' }],
-  webServer: {
-    // Playwright starts the webServer before globalSetup, so it must bootstrap the app
-    // itself. cwd is the app dir, so every command runs there without a chained `cd`.
-    command: 'bash setup.sh && pnpm install && pnpm build && php artisan serve --port=13337',
-    cwd: appDir,
-    url: 'http://127.0.0.1:13337/devtools',
-    reuseExistingServer: true,
-    timeout: 180 * 1000,
-  },
+  // The extension only captures data when the app runs through the vite dev server: the
+  // `inertia()` vite plugin injects the client devtools instrumentation and real source
+  // locations at dev time, which a production build strips. So serve the app in dev mode:
+  // one server for vite (writes the `hot` file the @vite directive reads), one for Laravel.
+  webServer: [
+    {
+      command: 'pnpm install && pnpm dev',
+      cwd: appDir,
+      url: 'http://localhost:4242/@vite/client',
+      reuseExistingServer: true,
+      timeout: 120 * 1000,
+    },
+    {
+      command: 'bash setup.sh && php artisan serve --port=13337',
+      cwd: appDir,
+      url: 'http://127.0.0.1:13337/devtools',
+      reuseExistingServer: true,
+      timeout: 120 * 1000,
+    },
+  ],
 })

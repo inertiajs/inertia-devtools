@@ -68,7 +68,7 @@ jobs:
         with:
           php-version: '8.5'
           tools: composer
-          extensions: sqlite3, pdo_sqlite
+          extensions: mbstring, dom, xml, curl, fileinfo, tokenizer, ctype, filter, session, openssl, intl, bcmath, sqlite3, pdo_sqlite
 
       - name: Install pnpm
         uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
@@ -86,6 +86,15 @@ jobs:
 
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
+
+      # Bootstrap the app as explicit steps (not only inside the Playwright webServer
+      # command) so composer/boot failures surface here with full, untruncated output.
+      # The app runs through the vite dev server (started by Playwright), so no build here.
+      - name: Bootstrap e2e app
+        run: bash tests/e2e/app/setup.sh
+
+      - name: Install e2e app deps
+        run: pnpm --dir tests/e2e/app install
 
       - name: Run e2e tests
         run: pnpm test:e2e
