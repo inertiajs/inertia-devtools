@@ -15,30 +15,38 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class SimulateEntryFetchFailures
 {
-    protected const KEY = 'devtools:fail-entry-fetches';
-
     public function handle(Request $request, Closure $next): Response
     {
-        if ($request->isMethod('GET') && $request->is('_inertia/devtools/entries/*') && static::consumeFailure()) {
+        if ($request->isMethod('GET') && $request->is('_inertia/devtools/entries/*') && $this->consumeFailure($request)) {
             abort(503);
         }
 
         return $next($request);
     }
 
-    public static function failNext(int $count): void
+    public static function failNext(string $id, int $count): void
     {
-        Cache::put(static::KEY, $count);
+        Cache::put(static::key($id), $count);
     }
 
-    protected static function consumeFailure(): bool
+    // Keyed by entry id (unique per recorded request) so parallel tests only trip the
+    // specific entry fetch they armed. The inspected-tab header isn't sent on the
+    // extension's service-worker fetch, so the id is the only reliable discriminator.
+    protected function consumeFailure(Request $request): bool
     {
-        if ((int) Cache::get(static::KEY) <= 0) {
+        $key = static::key(basename($request->path()));
+
+        if ((int) Cache::get($key) <= 0) {
             return false;
         }
 
-        Cache::decrement(static::KEY);
+        Cache::decrement($key);
 
         return true;
+    }
+
+    protected static function key(string $id): string
+    {
+        return 'devtools:fail-entry-fetch:'.$id;
     }
 }

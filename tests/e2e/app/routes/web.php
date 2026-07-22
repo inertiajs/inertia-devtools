@@ -9,7 +9,7 @@ use Illuminate\Support\Sleep;
 use Inertia\Inertia;
 
 Route::post('/_inertia/devtools/test/fail-next-entry-fetch', function (Request $request) {
-    SimulateEntryFetchFailures::failNext((int) $request->query('count', 1));
+    SimulateEntryFetchFailures::failNext((string) $request->query('id', ''), (int) $request->query('count', 1));
 
     return response()->noContent();
 });

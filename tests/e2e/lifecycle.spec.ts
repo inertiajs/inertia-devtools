@@ -307,9 +307,14 @@ test.describe('Inertia DevTools extension', () => {
     await page.waitForTimeout(800)
     await clearBuffers(serviceWorker)
 
-    await serviceWorker.evaluate(async (currentOrigin) => {
-      await fetch(`${currentOrigin}/_inertia/devtools/test/fail-next-entry-fetch?count=1`, { method: 'POST' })
-    }, origin)
+    await serviceWorker.evaluate(
+      async ({ currentOrigin, id }) => {
+        await fetch(`${currentOrigin}/_inertia/devtools/test/fail-next-entry-fetch?count=1&id=${id}`, {
+          method: 'POST',
+        })
+      },
+      { currentOrigin: origin, id: validId },
+    )
 
     await serviceWorker.evaluate(
       async ({ currentTabId, currentOrigin, currentId }) => {
