@@ -1,0 +1,54 @@
+{
+  "name": "@inertiajs/devtools-extension",
+  "version": "0.5.3",
+  "license": "MIT",
+  "private": true,
+  "description": "Chrome DevTools panel for inspecting Inertia.js requests, props, routes, and page state.",
+  "contributors": [
+    "Pascal Baljet <pascal@laravel.com>"
+  ],
+  "keywords": [
+    "inertia",
+    "inertiajs",
+    "devtools",
+    "chrome-extension",
+    "mv3",
+    "developer-tools"
+  ],
+  "homepage": "https://inertiajs.com/devtools",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inertiajs/inertia-devtools.git"
+  },
+  "bugs": {
+    "url": "https://github.com/inertiajs/inertia-devtools/issues"
+  },
+  "type": "module",
+  "dependencies": {
+    "@lucide/vue": "^1.17.0"
+  },
+  "scripts": {
+    "dev": "vite build --watch --mode development",
+    "build": "vite build",
+    "build:prod": "vite build --mode production",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test -c tests/e2e/playwright.config.ts",
+    "format": "oxfmt"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.58.2",
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/chrome": "^0.0.281",
+    "@types/node": "^24.10.13",
+    "@vitejs/plugin-vue": "^6.0.0",
+    "oxfmt": "^0.51.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.0",
+    "vitest": "^4.1.2",
+    "vue": "^3.5.13"
+  }
+}
