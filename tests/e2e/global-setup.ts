@@ -21,8 +21,10 @@ export default async () => {
     run('pnpm', ['build'], repoRoot)
   }
 
-  // Bootstrap the Laravel test app (composer install, .env, app key) so a fresh
-  // checkout can serve it. The same script also runs from the Playwright webServer
-  // command before `php artisan serve`, so serve never starts against an empty vendor.
+  // Bootstrap the Laravel test app (composer install, .env, app key) and build its
+  // frontend so `php artisan serve` (the Playwright webServer) has everything ready.
+  // Runs here rather than in the webServer command so failures surface with full output.
   run('bash', [resolve(appDir, 'setup.sh')], appDir)
+  run('pnpm', ['install'], appDir)
+  run('pnpm', ['build'], appDir)
 }

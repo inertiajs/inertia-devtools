@@ -8,10 +8,7 @@ declare const process: {
 
 const runsInCI = !!process.env.CI
 const url = 'http://127.0.0.1:13337'
-
-const setupCommand = `bash tests/e2e/app/setup.sh`
-const buildCommand = `cd tests/e2e/app && pnpm install && pnpm build`
-const serveCommand = `cd tests/e2e/app && php artisan serve --port=13337`
+const appDir = new URL('./app', import.meta.url).pathname
 
 export default defineConfig({
   testDir: '.',
@@ -30,14 +27,11 @@ export default defineConfig({
   },
   projects: [{ name: 'chromium' }],
   webServer: {
-    command: `${setupCommand} && ${buildCommand} && ${serveCommand}`,
-    cwd: resolveRepoRoot(),
+    // global-setup.ts bootstraps the app (composer, .env, build) before this runs.
+    command: 'php artisan serve --port=13337',
+    cwd: appDir,
     url: 'http://127.0.0.1:13337/devtools',
     reuseExistingServer: true,
     timeout: 120 * 1000,
   },
 })
-
-function resolveRepoRoot(): string {
-  return new URL('../..', import.meta.url).pathname
-}
