@@ -1,4 +1,4 @@
-export type EditorOption = 'phpstorm' | 'vscode' | 'vscode-insiders' | 'cursor' | 'zed' | 'sublime' | 'textmate' | 'off'
+export type EditorOption = 'phpstorm' | 'vscode' | 'vscode-insiders' | 'cursor' | 'zed' | 'sublime' | 'off'
 
 type EditorDefinition = {
   value: EditorOption
@@ -32,7 +32,7 @@ export const EDITOR_OPTIONS: readonly EditorOption[] = EDITORS.map((editor) => e
 
 // VS Code registers its vscode:// scheme natively on install. Sublime is kept as an option
 // but is not the default: it ships no URL handler, so subl:// links do nothing until the user
-// installs a third-party handler app.
+// installs one (on macOS, the SublimeUrl.app handler from inopinatus/sublime_url).
 export const DEFAULT_EDITOR: EditorOption = 'vscode'
 
 export function buildEditorUrl(editor: EditorOption, file: string, line: number): string | null {

@@ -55,7 +55,6 @@ test.describe('Inertia DevTools extension', () => {
       ['cursor', 'cursor://file//tmp/DevtoolsController.php:12'],
       ['zed', 'zed://file//tmp/DevtoolsController.php:12'],
       ['sublime', 'subl://open?url=file:///tmp/DevtoolsController.php&line=12'],
-      ['textmate', 'txmt://open?url=file:///tmp/DevtoolsController.php&line=12'],
       ['phpstorm', 'phpstorm://open?file=/tmp/DevtoolsController.php&line=12'],
     ] as const
 
