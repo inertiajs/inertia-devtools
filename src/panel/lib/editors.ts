@@ -22,7 +22,6 @@ export const EDITORS: readonly EditorDefinition[] = [
   { value: 'cursor', label: 'Cursor', buildUrl: pathScheme('cursor') },
   { value: 'phpstorm', label: 'PhpStorm', buildUrl: fileQueryScheme('phpstorm') },
   { value: 'sublime', label: 'Sublime Text', buildUrl: queryScheme('subl') },
-  { value: 'textmate', label: 'TextMate', buildUrl: queryScheme('txmt') },
   { value: 'vscode', label: 'VS Code', buildUrl: pathScheme('vscode') },
   { value: 'vscode-insiders', label: 'VS Code Insiders', buildUrl: pathScheme('vscode-insiders') },
   { value: 'zed', label: 'Zed', buildUrl: pathScheme('zed') },
