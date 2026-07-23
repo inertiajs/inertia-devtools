@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Inertia.js DevTools",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "Inspect every Inertia.js visit in Chrome DevTools: props, requests, routes, and page state.",
   "devtools_page": "devtools/devtools.html",
   "icons": {
@@ -21,20 +21,38 @@
     }
   },
   "minimum_chrome_version": "116",
-  "permissions": ["storage", "declarativeNetRequest", "webRequest", "tabs"],
-  "host_permissions": ["http://*/*", "https://*/*"],
+  "permissions": [
+    "storage",
+    "declarativeNetRequest",
+    "webRequest",
+    "tabs"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["content-script.js"],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "content-script.js"
+      ],
       "run_at": "document_start"
     },
     {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["page-world.js"],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "page-world.js"
+      ],
       "run_at": "document_start",
       "world": "MAIN"
     }
