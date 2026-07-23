@@ -6,28 +6,27 @@ test.describe('Inertia DevTools extension', () => {
     await clearBuffers(serviceWorker)
   })
 
-  test('it evicts the oldest entries after the buffer reaches 500 rows', async ({ page, serviceWorker }) => {
-    test.setTimeout(120_000)
-    await page.goto('/devtools')
+  test('it evicts the oldest entries once the buffer reaches its cap', async ({ page, serviceWorker }) => {
+    // `?max_entries=3` caps this tab's buffer at 3, so a handful of real navigations overflows it.
+    // Initial nav + 6 seeds = 7, so the oldest 4 (the initial entry and i=0..2) evict, leaving
+    // i=3..5 in order.
+    await page.goto('/devtools?max_entries=3')
 
     const tabId = await tabIdFor(serviceWorker, page)
     await waitForBuffer(serviceWorker, tabId, (list) => list.length === 1)
 
     await page.evaluate(async () => {
-      for (const index of Array.from({ length: 510 }, (_, value) => value)) {
-        await fetch(`/devtools/bulk-entry?i=${index}`, {
-          credentials: 'include',
-        })
+      for (const index of Array.from({ length: 6 }, (_, value) => value)) {
+        await fetch(`/devtools/bulk-entry?i=${index}`, { credentials: 'include' })
       }
     })
 
-    await expect.poll(async () => (await readBuffer(serviceWorker, tabId)).length, { timeout: 60_000 }).toBe(500)
+    await expect.poll(async () => (await readBuffer(serviceWorker, tabId)).length).toBe(3)
 
     const entries = await waitForBuffer(
       serviceWorker,
       tabId,
-      (list) => list.length === 500 && list[0].__meta.url.includes('i=10') && list.at(-1)?.__meta.url.includes('i=509'),
-      60_000,
+      (list) => list.length === 3 && list[0].__meta.url.includes('i=3') && list.at(-1)?.__meta.url.includes('i=5'),
     )
 
     const indices = entries.map((entry) => {
@@ -35,7 +34,7 @@ test.describe('Inertia DevTools extension', () => {
       return Number(new URLSearchParams(qs).get('i'))
     })
 
-    expect(indices).toEqual(Array.from({ length: 500 }, (_, k) => k + 10))
+    expect(indices).toEqual([3, 4, 5])
   })
 
   test('it surfaces the evicted count in the panel header once the buffer overflows', async ({
@@ -44,25 +43,22 @@ test.describe('Inertia DevTools extension', () => {
     page,
     serviceWorker,
   }) => {
-    test.setTimeout(120_000)
-    await page.goto('/devtools')
+    await page.goto('/devtools?max_entries=3')
 
     const tabId = await tabIdFor(serviceWorker, page)
     await waitForBuffer(serviceWorker, tabId, (list) => list.length === 1)
 
     await page.evaluate(async () => {
-      for (const index of Array.from({ length: 510 }, (_, value) => value)) {
-        await fetch(`/devtools/bulk-entry?i=${index}`, {
-          credentials: 'include',
-        })
+      for (const index of Array.from({ length: 6 }, (_, value) => value)) {
+        await fetch(`/devtools/bulk-entry?i=${index}`, { credentials: 'include' })
       }
     })
 
-    await expect.poll(async () => (await readBuffer(serviceWorker, tabId)).length, { timeout: 60_000 }).toBe(500)
+    await expect.poll(async () => (await readBuffer(serviceWorker, tabId)).length).toBe(3)
 
     const panel = await openPanel(context, extensionId, serviceWorker, tabId)
 
-    await expect(panel.getByText(/\d+ trimmed/)).toContainText('11 trimmed')
+    await expect(panel.getByText(/\d+ trimmed/)).toContainText('4 trimmed')
 
     await panel.close()
   })

@@ -15,6 +15,9 @@ interface TabState {
   // Whether the page exposed core's interceptor registry (dev build). null until the page
   // reports either way, so the panel can distinguish "unknown yet" from "confirmed off".
   devActive: boolean | null
+  // Ring-buffer size for this tab; defaults to ENTRY_BUFFER_LIMIT, overridable per tab via the
+  // inspected page's `?max_entries=` query (see the webRequest listener in background.ts).
+  maxEntries: number
   pageStates: Map<string, PageStateSnapshot>
   pending: { id: string; entry: Entry | null }[]
   unpaired: PageStateSnapshot[]
@@ -31,6 +34,7 @@ function ensureTabState(tabId: number): TabState {
       evicted: 0,
       origin: null,
       devActive: null,
+      maxEntries: ENTRY_BUFFER_LIMIT,
       pageStates: new Map(),
       pending: [],
       unpaired: [],
@@ -138,7 +142,7 @@ function batchTreeKey(entry: Entry): string {
  * the oldest entry, resolves its tree, and drops every entry sharing that tree.
  */
 function evictOverflow(tab: TabState): void {
-  while (tab.entries.length > ENTRY_BUFFER_LIMIT) {
+  while (tab.entries.length > tab.maxEntries) {
     const treeKey = batchTreeKey(tab.entries[0])
 
     tab.entries = tab.entries.filter((entry) => {
@@ -152,6 +156,14 @@ function evictOverflow(tab: TabState): void {
       return false
     })
   }
+}
+
+// Override a tab's buffer size (from the inspected page's `?max_entries=`), trimming
+// immediately if the new limit is below the current entry count.
+export function setTabMaxEntries(tabId: number, max: number): void {
+  const tab = ensureTabState(tabId)
+  tab.maxEntries = max
+  evictOverflow(tab)
 }
 
 // Runs once the entry is fetched, which may be before or after `inertia:success`,

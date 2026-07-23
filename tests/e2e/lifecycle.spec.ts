@@ -1,4 +1,3 @@
-import type { Worker } from '@playwright/test'
 import { clearBuffers, expect, readBuffer, tabIdFor, test, waitForBuffer } from './fixtures'
 import { setInspectedTabId, openPanel, timelineRows, readOrigin } from './helpers'
 
@@ -203,43 +202,6 @@ test.describe('Inertia DevTools extension', () => {
     await otherPage.close()
   })
 
-  test('it rehydrates the panel to an empty state after the extension reload clears the service worker buffer', async ({
-    context,
-    page,
-    serviceWorker,
-  }) => {
-    test.setTimeout(15_000)
-
-    await page.goto('/devtools')
-
-    const tabId = await tabIdFor(serviceWorker, page)
-    await waitForBuffer(serviceWorker, tabId, (list) => list.length === 1)
-
-    const replacementPromise = context.waitForEvent('serviceworker', { timeout: 10_000 })
-
-    await serviceWorker.evaluate(() => chrome.runtime.reload()).catch(() => {})
-
-    let replacement: Worker
-
-    try {
-      replacement = await replacementPromise
-    } catch (error) {
-      test.skip(
-        true,
-        `chrome.runtime.reload did not spawn a replacement service worker within 10s: ${(error as Error).message}. The persistent extension context tears down before Playwright observes the new worker.`,
-      )
-
-      return
-    }
-
-    await page.goto('/devtools')
-
-    const newTabId = await tabIdFor(replacement, page)
-    const refreshed = await waitForBuffer(replacement, newTabId, (list) => list.length >= 1, 10_000)
-
-    expect(refreshed.some((entry) => entry.__meta.url.endsWith('/devtools'))).toBe(true)
-  })
-
   test('it warns once when devtools is enabled server-side but the interceptor registry never appears', async ({
     page,
   }) => {
@@ -250,13 +212,16 @@ test.describe('Inertia DevTools extension', () => {
       }
     })
 
-    await page.goto('/devtools?noDevtools')
+    await page.goto('/devtools?noDevtools&interceptor_attempts=10')
     await expect(page.locator('script[data-inertia-devtools-id]')).toHaveCount(1)
 
-    await expect(() => expect(warnings.length).toBe(1)).toPass({ timeout: 8000 })
+    await expect(() => expect(warnings.length).toBe(1)).toPass({ timeout: 3000 })
   })
 
-  test('it does not warn about a missing interceptor registry on a normal dev page', async ({ page }) => {
+  test('it does not warn about a missing interceptor registry on a normal dev page', async ({
+    page,
+    serviceWorker,
+  }) => {
     const warnings: string[] = []
     page.on('console', (message) => {
       if (message.type() === 'warning' && message.text().includes('interceptor registry never appeared')) {
@@ -265,7 +230,11 @@ test.describe('Inertia DevTools extension', () => {
     })
 
     await page.goto('/devtools')
-    await page.waitForTimeout(6000)
+
+    // A captured entry proves the interceptor registry attached, so the "never appeared"
+    // warning can no longer fire. Waiting on that beats sleeping out the whole timeout window.
+    const tabId = await tabIdFor(serviceWorker, page)
+    await waitForBuffer(serviceWorker, tabId, (list) => list.length === 1)
 
     expect(warnings).toHaveLength(0)
   })

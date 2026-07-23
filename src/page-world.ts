@@ -530,7 +530,14 @@ const INTERCEPTOR_POLL_MS = 50
 const INTERCEPTOR_GRACE_ATTEMPTS = 20
 // A code-split app can boot later than the grace mark. Keep polling until here so a late
 // registry still flips the banner back off; `registerLineageInterceptors` re-emits `true`.
-const INTERCEPTOR_MAX_ATTEMPTS = 100
+// `?interceptor_attempts=N` on the page shortens this window (opt-in dev knob).
+const INTERCEPTOR_MAX_ATTEMPTS = resolveInterceptorMaxAttempts()
+
+function resolveInterceptorMaxAttempts(): number {
+  const override = Number(new URLSearchParams(window.location.search).get('interceptor_attempts'))
+
+  return Number.isInteger(override) && override > 0 ? override : 100
+}
 
 // `createInertiaApp({ dev })` exposes the registry during app boot, which may run after
 // this script. Poll until it appears, then register once. If `dev` is off (e.g. a

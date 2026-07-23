@@ -13,6 +13,7 @@ import {
   getPageStatesForTab,
   pairPageStateWithEntry,
   setDevActive,
+  setTabMaxEntries,
 } from './background/runtimeStore'
 import { resolveClientVisitBatchId, synthesizeCacheHitEntry, synthesizeClientVisitEntry } from './background/synthesize'
 import { ensureTabRule, migrateTabRule, primeExistingTabs, removeTabRule } from './background/tabRules'
@@ -47,6 +48,13 @@ browser.webRequest.onHeadersReceived.addListener(
   ({ tabId, responseHeaders, url }) => {
     if (tabId < 0 || !responseHeaders) {
       return
+    }
+
+    // Opt-in dev knob: `?max_entries=N` on the inspected page caps that tab's buffer.
+    const maxEntries = Number(new URL(url).searchParams.get('max_entries'))
+
+    if (Number.isInteger(maxEntries) && maxEntries > 0) {
+      setTabMaxEntries(tabId, maxEntries)
     }
 
     const idHeader = responseHeaders.find((header) => header.name.toLowerCase() === DEVTOOLS_ID_HEADER)

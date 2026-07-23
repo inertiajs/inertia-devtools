@@ -41,7 +41,10 @@ export default defineConfig({
       timeout: 120 * 1000,
     },
     {
-      command: 'bash setup.sh && php artisan serve --port=13337',
+      // `artisan serve` uses PHP's built-in server, which handles one request at a time by
+      // default. The e2e suite runs several Playwright workers in parallel, so fork a pool of
+      // PHP workers to stop lineage/page-state requests from queueing and timing out.
+      command: 'bash setup.sh && PHP_CLI_SERVER_WORKERS=8 php artisan serve --port=13337',
       cwd: appDir,
       url: 'http://127.0.0.1:13337/devtools',
       reuseExistingServer: true,

@@ -26,13 +26,16 @@ export const test = base.extend<{
 
     const userDataDir = await mkdtemp(join(tmpdir(), 'inertia-devtools-'))
 
+    // MV3 extensions load under the new headless mode; set HEADED=1 to watch a real window.
+    const headed = process.env.HEADED === '1'
+
     const context = await chromium.launchPersistentContext(userDataDir, {
       channel: 'chromium',
       headless: false,
       args: [
         `--disable-extensions-except=${extensionPath}`,
         `--load-extension=${extensionPath}`,
-        '--headless=new',
+        ...(headed ? [] : ['--headless=new']),
         '--no-sandbox',
       ],
     })
