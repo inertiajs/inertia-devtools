@@ -18,6 +18,7 @@ export const test = base.extend<{
   serviceWorker: Worker
   page: Page
 }>({
+  // eslint-disable-next-line no-empty-pattern -- Playwright's no-dependency fixture signature
   context: async ({}, use) => {
     if (!existsSync(join(extensionPath, 'manifest.json'))) {
       throw new Error(`Extension build missing at ${extensionPath}. Run "pnpm build" first.`)

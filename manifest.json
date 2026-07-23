@@ -24,8 +24,7 @@
   "permissions": ["storage", "declarativeNetRequest", "webRequest", "tabs"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "background": {
-    "service_worker": "background.js",
-    "type": "module"
+    "service_worker": "background.js"
   },
   "content_scripts": [
     {

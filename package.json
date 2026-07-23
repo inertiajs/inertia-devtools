@@ -35,7 +35,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test -c tests/e2e/playwright.config.ts",
-    "format": "oxfmt"
+    "format": "oxfmt",
+    "lint": "oxlint ."
   },
   "devDependencies": {
     "@playwright/test": "1.58.2",
@@ -44,6 +45,7 @@
     "@types/node": "^24.10.13",
     "@vitejs/plugin-vue": "^6.0.0",
     "oxfmt": "^0.51.0",
+    "oxlint": "^1.66.0",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.9.3",
     "vite": "^8.0.0",
