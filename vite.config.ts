@@ -56,8 +56,8 @@ function buildServiceWorker(mode: string): PluginOption {
             formats: ['es'],
             fileName: () => 'background.js',
           },
-          // Inline dynamic imports too, so a stray import() can't split off a chunk.
-          rollupOptions: { output: { inlineDynamicImports: true } },
+          // Disable code splitting so a stray import() can't split off a chunk.
+          rollupOptions: { output: { codeSplitting: false } },
         },
       })
 
