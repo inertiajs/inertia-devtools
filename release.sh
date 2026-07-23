@@ -40,6 +40,10 @@ TAG="v$NEW_VERSION"
 # Chrome reads the version from manifest.json, so keep it in lockstep with package.json
 node -e "const fs=require('fs');const m=require('./manifest.json');m.version='$NEW_VERSION';fs.writeFileSync('./manifest.json',JSON.stringify(m,null,2)+'\n')"
 
+# Re-format so the committed files already match oxfmt. Otherwise JSON.stringify expands the
+# manifest arrays and CI's coding-standards job commits a follow-up "Fix code style" change.
+pnpm run format >/dev/null
+
 # Commit and push the tag. Pushing the tag triggers the Release workflow, which builds,
 # packages the zip, and publishes the GitHub release with the zip attached.
 git add -A
