@@ -40,26 +40,15 @@ TAG="v$NEW_VERSION"
 # Chrome reads the version from manifest.json, so keep it in lockstep with package.json
 node -e "const fs=require('fs');const m=require('./manifest.json');m.version='$NEW_VERSION';fs.writeFileSync('./manifest.json',JSON.stringify(m,null,2)+'\n')"
 
-echo
-echo "Bumped to $TAG. Building..."
-pnpm install
-pnpm build
-
-# Package the unpacked extension for the Chrome Web Store (manifest at the zip root)
-ZIP="inertia-devtools-extension-$NEW_VERSION.zip"
-rm -f "$ZIP"
-(cd dist && zip -qr "../$ZIP" .)
-echo "Created $ZIP"
-
-# Commit, tag, push, and open a GitHub release with the zip attached
+# Commit and push the tag. Pushing the tag triggers the Release workflow, which builds,
+# packages the zip, and publishes the GitHub release with the zip attached.
 git add -A
 git commit -m "$TAG"
 git tag -a "$TAG" -m "$TAG"
 git push
 git push --tags
-gh release create "$TAG" "$ZIP" --generate-notes
 
 echo
-echo "✅ Release $TAG done."
-echo "📦 Upload $ZIP to the Chrome Web Store."
-echo "🔗 https://github.com/inertiajs/inertia-devtools/releases/tag/$TAG"
+echo "✅ Tagged $TAG and pushed. CI will build, package, and publish the release."
+echo "🔗 https://github.com/inertiajs/inertia-devtools/actions"
+echo "📦 When the Release workflow finishes, grab the zip from the release and upload it to the Chrome Web Store."

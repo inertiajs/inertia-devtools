@@ -9,14 +9,15 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const srcDir = resolve(__dirname, 'src')
 const distDir = resolve(__dirname, 'dist')
 
-// Extension assets Vite doesn't bundle, copied verbatim into dist after the build.
+// Static files that ship as-is; Vite copies them into the build untouched.
 const STATIC_ASSETS = ['manifest.json', 'icons']
 
-// Entry points the content script references by a fixed path, so they must keep stable,
-// unhashed filenames at the dist root instead of landing under assets/. (background is
-// built separately as a single self-contained file, see buildServiceWorker.)
+// Scripts the manifest loads by a fixed name, so they stay unhashed at the build root.
 const ROOT_ENTRIES = ['content-script', 'page-world']
 
+/**
+ * Copy the manifest and icons into the build directory once Vite finishes.
+ */
 function copyStaticAssets(): PluginOption {
   return {
     name: 'inertia-devtools-copy-static',
@@ -29,10 +30,12 @@ function copyStaticAssets(): PluginOption {
   }
 }
 
-// Bundle the MV3 service worker into a single self-contained file (all imports inlined)
-// rather than an ES module that imports shared chunks. A module worker that fails to fetch
-// an imported chunk fails registration outright (Chrome's opaque "Status code" errors), so
-// keeping it dependency-free removes that failure surface.
+/**
+ * Bundle the MV3 service worker into a single, dependency-free file.
+ *
+ * A module worker that imports a chunk fails registration outright if that chunk ever
+ * fails to load, so everything is inlined and the worker stays a classic script.
+ */
 function buildServiceWorker(mode: string): PluginOption {
   return {
     name: 'inertia-devtools-service-worker',
@@ -46,23 +49,19 @@ function buildServiceWorker(mode: string): PluginOption {
         build: {
           outDir: distDir,
           emptyOutDir: false,
-          target: 'es2022',
-          minify: mode === 'production' ? 'oxc' : false,
+          minify: mode === 'production',
           sourcemap: mode !== 'production',
           lib: {
             entry: resolve(srcDir, 'background.ts'),
             formats: ['es'],
             fileName: () => 'background.js',
           },
-          // Force a dependency-free worker even if a dynamic import() sneaks in later,
-          // so the worker never gains an external chunk it can't load.
+          // Inline dynamic imports too, so a stray import() can't split off a chunk.
           rollupOptions: { output: { inlineDynamicImports: true } },
         },
       })
 
-      // Enforce the invariant: the worker must be a single dependency-free classic file.
-      // Any import/export in the output means an external chunk was reintroduced (which a
-      // classic worker can't load → "registration failed. Status code: 10"), so fail loudly.
+      // The worker must stay self-contained, so fail the build if an import slipped back in.
       const code = readFileSync(resolve(distDir, 'background.js'), 'utf8')
 
       if (/\bimport\s*[({]|\bimport\s+['"]|\bfrom\s*['"]|\bexport[\s{]/.test(code)) {
@@ -83,10 +82,8 @@ export default defineConfig(({ mode }) => ({
     outDir: distDir,
     emptyOutDir: true,
     sourcemap: mode !== 'production',
-    target: 'es2022',
-    minify: mode === 'production' ? 'oxc' : false,
-    // Extension pages run in a controlled modern-Chrome context, so the module-preload
-    // polyfill is dead weight and only adds another scattered file.
+    minify: mode === 'production',
+    // Extension pages run in modern Chrome, so the module-preload polyfill is dead weight.
     modulePreload: false,
     rollupOptions: {
       input: {
@@ -97,9 +94,8 @@ export default defineConfig(({ mode }) => ({
         popup: resolve(srcDir, 'popup/popup.html'),
       },
       output: {
-        // The shared modules (constants, guards) are used by several module contexts (service
-        // worker + extension pages); collapse them into one stable chunk instead of several
-        // hashed ones. content-script and page-world import nothing, so they stay self-contained.
+        // Keep constants and guards in one stable chunk shared by the extension pages. The
+        // content scripts import nothing and the worker is built separately, so neither uses it.
         manualChunks: (id) => (/\/src\/(constants|guards)\.ts$/.test(id) ? 'shared' : undefined),
         entryFileNames: (chunk) => (ROOT_ENTRIES.includes(chunk.name) ? '[name].js' : 'assets/[name].js'),
         chunkFileNames: 'assets/[name].js',
