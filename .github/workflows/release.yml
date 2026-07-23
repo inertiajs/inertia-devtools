@@ -14,6 +14,9 @@ jobs:
     timeout-minutes: 15
     runs-on: ubuntu-24.04
 
+    outputs:
+      notes: ${{ steps.publish.outputs.notes }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -38,6 +41,7 @@ jobs:
         run: pnpm build
 
       - name: Package and publish
+        id: publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -45,3 +49,20 @@ jobs:
           zip="inertia-devtools-extension-${version}.zip"
           (cd dist && zip -qr "../${zip}" .)
           gh release create "$GITHUB_REF_NAME" "$zip" --generate-notes
+
+          notes="$(gh release view "$GITHUB_REF_NAME" --json body --jq .body)"
+          {
+            echo "notes<<GH_NOTES_EOF"
+            echo "$notes"
+            echo "GH_NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+  changelog:
+    needs: release
+    permissions:
+      contents: write
+    uses: laravel/.github/.github/workflows/update-changelog.yml@4bf890cc0e48724d6f2061c28f2e6ff48911adbd # main
+    with:
+      version: ${{ github.ref_name }}
+      branch: master
+      notes: ${{ needs.release.outputs.notes }}
