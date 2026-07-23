@@ -43,14 +43,9 @@ jobs:
         run: pnpm build
 
   e2e:
-    name: E2E (shard ${{ matrix.shard }}/4)
+    name: E2E
     timeout-minutes: 20
     runs-on: ubuntu-24.04
-
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
 
     steps:
       - name: Checkout
@@ -105,4 +100,4 @@ jobs:
         run: pnpm --dir tests/e2e/app install
 
       - name: Run e2e tests
-        run: pnpm exec playwright test -c tests/e2e/playwright.config.ts --shard=${{ matrix.shard }}/4
+        run: pnpm exec playwright test -c tests/e2e/playwright.config.ts
