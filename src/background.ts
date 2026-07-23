@@ -35,6 +35,19 @@ type DevToolsServiceWorkerGlobal = {
 // E2E-only hook for tests/devtools/fixtures.ts.
 declare const self: WorkerGlobalScope & DevToolsServiceWorkerGlobal
 
+// Surface worker runtime errors in the worker's own console instead of failing silently.
+const workerScope = self as unknown as {
+  addEventListener(type: 'error', listener: (event: ErrorEvent) => void): void
+  addEventListener(type: 'unhandledrejection', listener: (event: PromiseRejectionEvent) => void): void
+}
+
+workerScope.addEventListener('error', (event) => {
+  console.error('[inertia-devtools] service worker error:', event)
+})
+workerScope.addEventListener('unhandledrejection', (event) => {
+  console.error('[inertia-devtools] service worker unhandled rejection:', event)
+})
+
 browser.runtime.onInstalled.addListener(() => void primeExistingTabs())
 browser.runtime.onStartup.addListener(() => void primeExistingTabs())
 browser.tabs.onCreated.addListener((tab) => {
