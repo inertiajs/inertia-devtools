@@ -1,5 +1,6 @@
 import { browser } from '../browser'
 import { DEVTOOLS_TAB_HEADER, TAB_STORAGE_KEY_PREFIX } from '../constants'
+import { getProvenHosts } from './hosts'
 import { clearTab, migrateTab } from './runtimeStore'
 
 function tabStorageKey(tabId: number): string {
@@ -15,9 +16,22 @@ export async function readTabUuid(tabId: number): Promise<string | null> {
 
 /**
  * Install the per-tab DNR rule that stamps outgoing requests with the stable tab UUID.
+ *
+ * The rule only covers hosts that have proven they run the recorder — `requestDomains` is the
+ * closest DNR gets to a host allowlist, so it widens to their subdomains too.
  */
 export async function writeDnrRule(tabId: number, uuid: string): Promise<void> {
+  const provenHosts = await getProvenHosts()
+
   try {
+    // Until some host proves it runs the recorder there is no rule at all: a UUID stamped on every
+    // request would be a stable identifier handed to every site the user visits.
+    if (provenHosts.length === 0) {
+      await browser.declarativeNetRequest.updateSessionRules({ removeRuleIds: [tabId] })
+
+      return
+    }
+
     await browser.declarativeNetRequest.updateSessionRules({
       removeRuleIds: [tabId],
       addRules: [
@@ -26,6 +40,7 @@ export async function writeDnrRule(tabId: number, uuid: string): Promise<void> {
           priority: 1,
           condition: {
             tabIds: [tabId],
+            requestDomains: provenHosts,
             resourceTypes: [
               chrome.declarativeNetRequest.ResourceType.XMLHTTPREQUEST,
               chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
@@ -52,15 +67,13 @@ export async function writeDnrRule(tabId: number, uuid: string): Promise<void> {
 
 /**
  * Ensure a tab has a stable UUID and matching header-injection rule before traffic starts.
+ *
+ * The rule is rewritten rather than assumed live: session rules die on browser restart, and the
+ * proven-host set they are scoped to grows as hosts reveal a recorder.
  */
 export async function ensureTabRule(tabId: number): Promise<string> {
-  const existing = await readTabUuid(tabId)
+  const uuid = (await readTabUuid(tabId)) ?? crypto.randomUUID()
 
-  if (existing) {
-    return existing
-  }
-
-  const uuid = crypto.randomUUID()
   await browser.storage.local.set({ [tabStorageKey(tabId)]: uuid })
   await writeDnrRule(tabId, uuid)
 
@@ -103,7 +116,8 @@ export async function migrateTabRule(addedTabId: number, removedTabId: number): 
   migrateTab(removedTabId, addedTabId)
 }
 
-export async function primeExistingTabs(): Promise<void> {
+/** Reinstall every tab rule: on worker start, and when a newly proven host widens their scope. */
+export async function syncAllTabRules(): Promise<void> {
   const tabs = await browser.tabs.query({})
 
   for (const tab of tabs) {
