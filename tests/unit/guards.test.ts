@@ -16,6 +16,28 @@ describe('isEntry', () => {
 
     expect(isEntry(entry)).toBe(true)
   })
+
+  // The wire contract moves independently of the extension: an entry from a newer adapter must
+  // never be dropped for carrying fields or enum values this build has never seen, and one from
+  // an older adapter must not be dropped for lacking the newest optional fields.
+  it('accepts entries that drifted from a newer or an older adapter', () => {
+    const forward = makeEntry() as Record<string, unknown>
+    forward.__meta = { ...(forward.__meta as object), requestType: 'some-future-type', newInV2: 'value' }
+    forward.brandNewSection = { anything: true }
+
+    expect(isEntry(forward)).toBe(true)
+
+    const backward = makeEntry() as Record<string, unknown>
+    const meta = backward.__meta as Record<string, unknown>
+
+    for (const optional of ['serverTimingMs', 'redirectLocation', 'visitId']) {
+      delete meta[optional]
+    }
+
+    delete backward.propValues
+
+    expect(isEntry(backward)).toBe(true)
+  })
 })
 
 describe('isBackgroundMessage', () => {

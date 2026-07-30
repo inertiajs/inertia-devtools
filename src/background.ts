@@ -1,5 +1,6 @@
 import { broadcastDevStatus, broadcastEntryPageState, broadcastRequestActive } from './background/broadcasts'
 import { handleCacheHit } from './background/cacheHit'
+import { forgetProvenHosts, rememberProvenHost } from './background/hosts'
 import { ingestEntry } from './background/ingest'
 import { appendAndBroadcast } from './background/record'
 import {
@@ -16,7 +17,7 @@ import {
   setTabMaxEntries,
 } from './background/runtimeStore'
 import { resolveClientVisitBatchId, synthesizeCacheHitEntry, synthesizeClientVisitEntry } from './background/synthesize'
-import { ensureTabRule, migrateTabRule, primeExistingTabs, removeTabRule } from './background/tabRules'
+import { ensureTabRule, migrateTabRule, removeTabRule, syncAllTabRules } from './background/tabRules'
 import { browser } from './browser'
 import { DEVTOOLS_ID_HEADER, REEMIT_PAGE_STATE_MESSAGE } from './constants'
 import { isBackgroundMessage } from './guards'
@@ -48,8 +49,8 @@ workerScope.addEventListener('unhandledrejection', (event) => {
   console.error('[inertia-devtools] service worker unhandled rejection:', event)
 })
 
-browser.runtime.onInstalled.addListener(() => void primeExistingTabs())
-browser.runtime.onStartup.addListener(() => void primeExistingTabs())
+browser.runtime.onInstalled.addListener(() => void syncAllTabRules())
+browser.runtime.onStartup.addListener(() => void syncAllTabRules())
 browser.tabs.onCreated.addListener((tab) => {
   if (typeof tab.id === 'number') {
     void ensureTabRule(tab.id)
@@ -76,7 +77,10 @@ browser.webRequest.onHeadersReceived.addListener(
       return
     }
 
-    void ingestEntry(tabId, new URL(url).origin, idHeader.value)
+    const origin = new URL(url).origin
+
+    void noteProvenHost(origin)
+    void ingestEntry(tabId, origin, idHeader.value)
   },
   { urls: ['<all_urls>'] },
   ['responseHeaders'],
@@ -88,12 +92,28 @@ self.__inertiaDevtools = {
   getPageStates: (tabId) => getPageStatesForTab(tabId),
   clearAll: () => clearAll(),
   ingest: (tabId, origin, id) => ingestEntry(tabId, origin, id),
+  forgetHosts: async () => {
+    await forgetProvenHosts()
+    await syncAllTabRules()
+  },
 }
 
 function replyOk(sendResponse: (response: { ok: true }) => void): boolean {
   sendResponse({ ok: true })
 
   return false
+}
+
+/**
+ * Unlock the tab header for a host that just proved it runs the recorder.
+ *
+ * Its first response is therefore unstamped; every request made after the rule lands carries the
+ * tab UUID.
+ */
+async function noteProvenHost(origin: string): Promise<void> {
+  if (await rememberProvenHost(origin)) {
+    await syncAllTabRules()
+  }
 }
 
 /**
@@ -158,6 +178,7 @@ function recordClientVisit(tabId: number, visit: ClientVisitSnapshot): void {
 function handleContentMessage(tabId: number, message: ContentToBackgroundMessage): void {
   switch (message.type) {
     case 'content:initial-id':
+      void noteProvenHost(message.origin)
       void ingestEntry(tabId, message.origin, message.id)
       return
 

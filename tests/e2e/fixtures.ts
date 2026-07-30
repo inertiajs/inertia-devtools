@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test as base, chromium, type BrowserContext, type Page, type Worker } from '@playwright/test'
-import type { Entry, PageStateSnapshot } from '../src/types'
+import type { Entry, PageStateSnapshot } from '../../src/types'
 
 const here = dirname(fileURLToPath(import.meta.url))
 

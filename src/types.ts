@@ -170,4 +170,5 @@ export type DevToolsTestHooks = {
   getPageStates: (tabId: number) => Record<string, PageStateSnapshot>
   clearAll: () => void
   ingest: (tabId: number, origin: string, id: string) => Promise<void>
+  forgetHosts: () => Promise<void>
 }
