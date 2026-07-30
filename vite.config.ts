@@ -13,7 +13,7 @@ const distDir = resolve(__dirname, 'dist')
 const STATIC_ASSETS = ['manifest.json', 'icons']
 
 // Scripts the manifest loads by a fixed name, so they stay unhashed at the build root.
-const ROOT_ENTRIES = ['content-script', 'page-world']
+const CONTENT_SCRIPTS = ['content-script', 'page-world']
 
 /**
  * Copy the manifest and icons into the build directory once Vite finishes.
@@ -74,10 +74,58 @@ function buildServiceWorker(mode: string): PluginOption {
   }
 }
 
+/**
+ * Bundle each content script as a self-contained IIFE.
+ *
+ * The manifest loads these as classic scripts, so top-level bindings leak into the world they run
+ * in. `page-world` runs in the MAIN world, where a minified `var e` is enough to make a page's own
+ * `let e` fail to parse, taking down that script and everything downstream of it.
+ */
+function buildContentScripts(mode: string): PluginOption {
+  return {
+    name: 'inertia-devtools-content-scripts',
+    apply: 'build',
+    async closeBundle() {
+      for (const entry of CONTENT_SCRIPTS) {
+        await viteBuild({
+          configFile: false,
+          root: srcDir,
+          publicDir: false,
+          mode,
+          build: {
+            outDir: distDir,
+            emptyOutDir: false,
+            minify: mode === 'production',
+            sourcemap: mode !== 'production',
+            lib: {
+              entry: resolve(srcDir, `${entry}.ts`),
+              formats: ['iife'],
+              name: 'inertiaDevtools',
+              fileName: () => `${entry}.js`,
+            },
+            // Disable code splitting: a content script cannot follow an ES module chunk import.
+            rollupOptions: { output: { codeSplitting: false } },
+          },
+        })
+
+        // Guard the property that actually matters, since nothing else in the build enforces it.
+        const code = readFileSync(resolve(distDir, `${entry}.js`), 'utf8').trim()
+
+        if (!code.startsWith('(')) {
+          throw new Error(
+            `Content script (${entry}.js) does not open as an IIFE, so its top-level declarations ` +
+              'leak into the world it runs in. It must stay wrapped.',
+          )
+        }
+      }
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => ({
   root: srcDir,
   publicDir: false,
-  plugins: [vue(), tailwindcss(), buildServiceWorker(mode), copyStaticAssets()],
+  plugins: [vue(), tailwindcss(), buildServiceWorker(mode), buildContentScripts(mode), copyStaticAssets()],
   build: {
     outDir: distDir,
     emptyOutDir: true,
@@ -87,8 +135,6 @@ export default defineConfig(({ mode }) => ({
     modulePreload: false,
     rollupOptions: {
       input: {
-        'content-script': resolve(srcDir, 'content-script.ts'),
-        'page-world': resolve(srcDir, 'page-world.ts'),
         devtools: resolve(srcDir, 'devtools/devtools.html'),
         panel: resolve(srcDir, 'panel/panel.html'),
         popup: resolve(srcDir, 'popup/popup.html'),
@@ -97,7 +143,7 @@ export default defineConfig(({ mode }) => ({
         // Keep constants and guards in one stable chunk shared by the extension pages. The
         // content scripts import nothing and the worker is built separately, so neither uses it.
         manualChunks: (id) => (/\/src\/(constants|guards)\.ts$/.test(id) ? 'shared' : undefined),
-        entryFileNames: (chunk) => (ROOT_ENTRIES.includes(chunk.name) ? '[name].js' : 'assets/[name].js'),
+        entryFileNames: 'assets/[name].js',
         chunkFileNames: 'assets/[name].js',
         assetFileNames: 'assets/[name][extname]',
       },
