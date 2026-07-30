@@ -212,10 +212,46 @@ test.describe('Inertia DevTools extension', () => {
       }
     })
 
-    await page.goto('/devtools?noDevtools&interceptor_attempts=10')
+    await page.goto('/devtools?noDevtools&interceptor_timeout=500')
     await expect(page.locator('script[data-inertia-devtools-id]')).toHaveCount(1)
 
     await expect(() => expect(warnings.length).toBe(1)).toPass({ timeout: 3000 })
+  })
+
+  test('it recovers when the interceptor registry appears seconds after the warning mark', async ({
+    context,
+    extensionId,
+    page,
+    serviceWorker,
+  }) => {
+    await page.goto('/devtools?devDelay=8000&interceptor_timeout=500')
+
+    const tabId = await tabIdFor(serviceWorker, page)
+    const panel = await openPanel(context, extensionId, serviceWorker, tabId)
+    const banner = panel.getByText('not running in dev mode')
+
+    await expect(banner).toBeVisible()
+    await expect(banner).toBeHidden({ timeout: 20_000 })
+
+    await page.getByRole('link', { name: 'Partial' }).click()
+    await waitForBuffer(serviceWorker, tabId, (list) =>
+      list.some((entry) => entry.__meta.component === 'Devtools/Partial'),
+    )
+
+    await page.getByRole('button', { name: 'Reload only summary' }).click()
+
+    const entries = await waitForBuffer(
+      serviceWorker,
+      tabId,
+      (list) => list.filter((entry) => entry.__meta.component === 'Devtools/Partial').length === 2,
+    )
+
+    const partial = entries.find((entry) => entry.__meta.requestType === 'partial')
+    const navigate = entries.find((entry) => entry.__meta.component === 'Devtools/Partial' && !entry.__meta.batchId)
+
+    expect(partial?.__meta.batchId).toBe(navigate?.__meta.id)
+
+    await panel.close()
   })
 
   test('it does not warn about a missing interceptor registry on a normal dev page', async ({
