@@ -53,19 +53,6 @@ jobs:
         with:
           persist-credentials: false
 
-      # The e2e Laravel app depends on the private inertia-laravel fork that carries
-      # the devtools server. composer resolves it through a path repository pointing
-      # at a sibling checkout of this repo, so clone it there before installing.
-      # Remove this step once the fork is merged into public inertia-laravel and the
-      # composer `repositories` override is dropped.
-      - name: Checkout inertia-laravel devtools fork
-        run: |
-          git clone --depth 1 \
-            "https://x-access-token:${TOKEN}@github.com/inertiajs/inertia-laravel-devtools.git" \
-            "${{ github.workspace }}/../inertia-laravel-devtools"
-        env:
-          TOKEN: ${{ secrets.INERTIA_LARAVEL_DEVTOOLS_TOKEN }}
-
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
