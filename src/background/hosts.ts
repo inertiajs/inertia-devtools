@@ -1,11 +1,13 @@
 import { browser } from '../browser'
 import { DEVTOOLS_HOSTS_STORAGE_KEY } from '../constants'
 
-// Hosts that served an `x-inertia-devtools-id` header or rendered the id tag, and so proved they
-// run the recorder. The tab header is a stable identifier, so it is only ever stamped on these.
-//
-// Persisted because the proof outlives the session rules it scopes, and cached because a rule is
-// rewritten for every tab Chrome opens.
+/**
+ * Hosts that served an `x-inertia-devtools-id` header or rendered the id tag, and so proved they
+ * run the recorder. The tab header is a stable identifier, so it is only ever stamped on these.
+ *
+ * Persisted because the proof outlives the session rules it scopes, and cached because a rule is
+ * rewritten for every tab Chrome opens.
+ */
 let cachedHosts: Set<string> | null = null
 
 async function loadHosts(): Promise<Set<string>> {
@@ -25,7 +27,10 @@ export async function getProvenHosts(): Promise<string[]> {
   return [...(await loadHosts())]
 }
 
-// Origins reach this module from page-controlled messages, so only http(s) ones earn a rule.
+/**
+ * Reduce a page-controlled origin to the hostname a DNR rule may name, or null when it is neither
+ * http nor https.
+ */
 function hostnameOf(origin: string): string | null {
   try {
     const url = new URL(origin)
