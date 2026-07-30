@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "bfb231f8a876872c73b9959acfe990e0",
+    "content-hash": "cd8bf7f9a95e77fdaf74c5490c7eca6a",
     "packages": [
         {
             "name": "brick/math",
@@ -1059,15 +1059,21 @@
         },
         {
             "name": "inertiajs/inertia-laravel",
-            "version": "dev-master",
+            "version": "v3.2.1",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/inertiajs/inertia-laravel.git",
+                "reference": "e6ad31fbafb3c8d1c269c93ab12da3712c077744"
+            },
             "dist": {
-                "type": "path",
-                "url": "../../../../inertia-laravel-devtools",
-                "reference": "d4d144052d7d2f05679c7a25f78b24b37686b803"
+                "type": "zip",
+                "url": "https://api.github.com/repos/inertiajs/inertia-laravel/zipball/e6ad31fbafb3c8d1c269c93ab12da3712c077744",
+                "reference": "e6ad31fbafb3c8d1c269c93ab12da3712c077744",
+                "shasum": ""
             },
             "require": {
                 "ext-json": "*",
-                "laravel/framework": "^11.0|^12.0|^13.0",
+                "laravel/framework": "^11.35|^12.0|^13.0",
                 "php": "^8.2.0",
                 "symfony/console": "^7.0|^8.0"
             },
@@ -1075,13 +1081,12 @@
                 "laravel/boost": "<2.2.0"
             },
             "require-dev": {
-                "guzzlehttp/guzzle": "^7.2",
+                "guzzlehttp/guzzle": "^7.15.2|^8.0",
                 "larastan/larastan": "^3.0",
                 "laravel/pint": "^1.16",
                 "mockery/mockery": "^1.3.3",
                 "orchestra/testbench": "^9.2|^10.0|^11.0",
-                "phpunit/phpunit": "^11.5|^12.0",
-                "roave/security-advisories": "dev-master"
+                "phpunit/phpunit": "^11.5|^12.0"
             },
             "suggest": {
                 "ext-pcntl": "Recommended when running the Inertia SSR server via the `inertia:start-ssr` artisan command."
@@ -1095,29 +1100,14 @@
                 }
             },
             "autoload": {
-                "psr-4": {
-                    "Inertia\\": "src"
-                },
                 "files": [
                     "./helpers.php"
-                ]
-            },
-            "autoload-dev": {
+                ],
                 "psr-4": {
-                    "Inertia\\Tests\\": "tests/"
+                    "Inertia\\": "src"
                 }
             },
-            "scripts": {
-                "test": [
-                    "phpunit"
-                ],
-                "lint": [
-                    "pint"
-                ],
-                "analyze": [
-                    "phpstan analyze --memory-limit=512M"
-                ]
-            },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
@@ -1133,9 +1123,11 @@
                 "inertia",
                 "laravel"
             ],
-            "transport-options": {
-                "relative": true
-            }
+            "support": {
+                "issues": "https://github.com/inertiajs/inertia-laravel/issues",
+                "source": "https://github.com/inertiajs/inertia-laravel/tree/v3.2.1"
+            },
+            "time": "2026-07-29T09:10:23+00:00"
         },
         {
             "name": "laravel/framework",
