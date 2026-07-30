@@ -6,7 +6,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.3",
-        "inertiajs/inertia-laravel": "*",
+        "inertiajs/inertia-laravel": "^3.2.1",
         "laravel/framework": "^13.8"
     },
     "autoload": {
@@ -34,12 +34,5 @@
         }
     },
     "minimum-stability": "dev",
-    "prefer-stable": true,
-    "repositories": [
-        {
-            "name": "inertia-devtools",
-            "type": "path",
-            "url": "../../../../inertia-laravel-devtools"
-        }
-    ]
+    "prefer-stable": true
 }
