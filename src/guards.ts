@@ -17,6 +17,10 @@ function isNullableString(value: unknown): value is string | null {
   return value === null || isString(value)
 }
 
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || isString(value)
+}
+
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
@@ -65,7 +69,7 @@ export function isBackgroundMessage(value: unknown): value is BackgroundMessage 
 
   switch (value.type) {
     case 'content:initial-id':
-      return isString(value.id) && value.id.length > 0 && isString(value.origin)
+      return isString(value.id) && value.id.length > 0 && isString(value.origin) && isOptionalString(value.basePath)
     case 'content:cache-hit':
       return isCacheHitShape(value)
     case 'content:page-state':

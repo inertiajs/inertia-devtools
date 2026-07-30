@@ -121,7 +121,7 @@ export type ClientVisitSnapshot = {
 }
 
 export type ContentToBackgroundMessage =
-  | { type: 'content:initial-id'; id: string; origin: string }
+  | { type: 'content:initial-id'; id: string; origin: string; basePath?: string }
   | {
       type: 'content:cache-hit'
       url: string
@@ -169,6 +169,6 @@ export type DevToolsTestHooks = {
   getOrigin: (tabId: number) => string | null
   getPageStates: (tabId: number) => Record<string, PageStateSnapshot>
   clearAll: () => void
-  ingest: (tabId: number, origin: string, id: string) => Promise<void>
+  ingest: (tabId: number, origin: string, id: string, basePath?: string) => Promise<void>
   forgetHosts: () => Promise<void>
 }
