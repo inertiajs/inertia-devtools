@@ -522,27 +522,32 @@ function registerLineageInterceptors(interceptors: InertiaInterceptors): void {
   })
 }
 
-// How often to re-check for the interceptor registry, and after how many misses to
-// surface the "dev mode off" banner versus stop polling entirely.
-const INTERCEPTOR_POLL_MS = 50
-// createInertiaApp boots early, so a registry that is coming has almost always appeared
-// within a second. Report dev mode off at this mark so the banner pops promptly.
-const INTERCEPTOR_GRACE_ATTEMPTS = 20
-// A code-split app can boot later than the grace mark. Keep polling until here so a late
-// registry still flips the banner back off; `registerLineageInterceptors` re-emits `true`.
-// `?interceptor_attempts=N` on the page shortens this window (opt-in dev knob).
-const INTERCEPTOR_MAX_ATTEMPTS = resolveInterceptorMaxAttempts()
+// Geometric backoff: hammer the first moments, when the app is most likely to boot, then ease
+// off as the odds drop. Checks land at 50ms, 125ms, 238ms and so on up to 13s.
+const INTERCEPTOR_FIRST_POLL_MS = 50
+const INTERCEPTOR_POLL_GROWTH = 1.5
+// Cadence the backoff settles on. A cold dev server or a code-split entry can boot well past
+// the ramp, and giving up there left the panel showing its banner for good.
+const INTERCEPTOR_STEADY_POLL_MS = 5000
+// Report dev mode off at this mark. Late enough that an app which is merely slow to boot does
+// not flash the banner on its way up, since that reads as a bug in the extension, and a build
+// with `dev` genuinely off is in no hurry to be told.
+const INTERCEPTOR_GRACE_MS = 3000
+// Mark at which the registry is presumed gone, so the console warning fires once.
+// `?interceptor_timeout=N` (ms) shortens this window (opt-in dev knob).
+const INTERCEPTOR_WARN_MS = resolveInterceptorWarnMs()
 
-function resolveInterceptorMaxAttempts(): number {
-  const override = Number(new URLSearchParams(window.location.search).get('interceptor_attempts'))
+function resolveInterceptorWarnMs(): number {
+  const override = Number(new URLSearchParams(window.location.search).get('interceptor_timeout'))
 
-  return Number.isInteger(override) && override > 0 ? override : 100
+  return Number.isInteger(override) && override > 0 ? override : 5000
 }
 
-// `createInertiaApp({ dev })` exposes the registry during app boot, which may run after
-// this script. Poll until it appears, then register once. If `dev` is off (e.g. a
-// production build) the registry never appears: report the banner at the grace mark, then
-// keep watching in case the app simply booted slowly before finally giving up.
+/**
+ * Watch for the registry `createInertiaApp({ dev })` exposes while the app boots, which can run
+ * long after this script, and stamp lineage through it once it lands. A build with `dev` off
+ * never exposes one: say so at the grace mark, warn at the warning mark, and keep watching.
+ */
 function awaitInterceptors(): void {
   const win = window as Window & {
     __inertia_interceptors__?: InertiaInterceptors
@@ -553,55 +558,82 @@ function awaitInterceptors(): void {
     return
   }
 
-  let attempts = 0
-  let reportedOff = false
+  // Monotonic, so a system clock adjustment cannot push the marks out of reach.
+  const startedAt = performance.now()
 
-  const timer = window.setInterval(() => {
+  let delay = INTERCEPTOR_FIRST_POLL_MS
+  let bannerPosted = false
+  let warningLogged = false
+
+  function scheduleNextCheck(): void {
+    // The steady beat is only worth paying for where the recorder proved it runs: every other
+    // page would tick forever looking for something that is never coming. The id tag sits at
+    // the end of the body, so wait for the parser before reading anything into its absence.
+    if (delay === INTERCEPTOR_STEADY_POLL_MS && document.readyState !== 'loading' && !readInitialEntryId()) {
+      return
+    }
+
+    window.setTimeout(checkForRegistry, delay)
+
+    delay = Math.min(Math.round(delay * INTERCEPTOR_POLL_GROWTH), INTERCEPTOR_STEADY_POLL_MS)
+  }
+
+  function checkForRegistry(): void {
     if (win.__inertia_interceptors__) {
-      window.clearInterval(timer)
       registerLineageInterceptors(win.__inertia_interceptors__)
       return
     }
 
-    attempts++
+    const elapsed = performance.now() - startedAt
 
-    if (attempts === INTERCEPTOR_GRACE_ATTEMPTS && !reportedOff) {
-      reportedOff = true
-      reportDevModeOff()
+    // Both marks stay pending until they actually report: on a slowly streamed document the
+    // id tag they read may not be parsed yet, and that is not the same as devtools being off.
+    if (!bannerPosted && elapsed >= INTERCEPTOR_GRACE_MS) {
+      bannerPosted = reportDevModeOff()
     }
 
-    if (attempts >= INTERCEPTOR_MAX_ATTEMPTS) {
-      window.clearInterval(timer)
-      warnIfDevtoolsExpected()
+    if (!warningLogged && elapsed >= INTERCEPTOR_WARN_MS) {
+      warningLogged = warnIfDevtoolsExpected()
     }
-  }, INTERCEPTOR_POLL_MS)
+
+    scheduleNextCheck()
+  }
+
+  scheduleNextCheck()
 }
 
-// The server stamped an entry id tag (devtools enabled) but no registry appeared within the
-// grace window, so lineage stamping and visit-option injection are off. Tell the panel to
-// show its banner. When no tag is present, devtools is intentionally off: stay silent.
-function reportDevModeOff(): void {
+/**
+ * Tell the panel to show its banner: the server stamped an entry id tag, so devtools is on,
+ * yet nothing is stamping lineage. Without that tag devtools is off on purpose, so stay
+ * silent and report having said nothing.
+ */
+function reportDevModeOff(): boolean {
   if (readInitialEntryId() === undefined) {
-    return
+    return false
   }
 
   postDevStatus(false)
+
+  return true
 }
 
-// When the server stamped an entry id tag, it believes devtools is enabled, yet the
-// interceptor registry never appeared. That means lineage stamping is silently off
-// (likely `createInertiaApp` ran without `dev`, or booted too late). Warn once so the
-// gap is visible. When no tag is present, devtools is intentionally off: stay silent.
-function warnIfDevtoolsExpected(): void {
+/**
+ * Warn that the server enabled devtools while the client never exposed its registry, most
+ * likely because `createInertiaApp` ran without `dev`, so lineage is silently going unrecorded.
+ * Without the id tag devtools is off on purpose, so stay silent and report having said nothing.
+ */
+function warnIfDevtoolsExpected(): boolean {
   if (readInitialEntryId() === undefined) {
-    return
+    return false
   }
 
   console.warn(
     '[inertia devtools] The server enabled devtools but the interceptor registry never appeared, ' +
       'so request lineage is not being recorded. Ensure `createInertiaApp` is called with `dev: true` ' +
-      '(or under a dev build) and boots within a few seconds of page load.',
+      '(or under a dev build). Recording starts on its own if the app boots later.',
   )
+
+  return true
 }
 
 awaitInterceptors()
