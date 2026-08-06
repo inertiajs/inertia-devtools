@@ -40,7 +40,7 @@ function entryEndpoint(origin: string, basePath: string, id: string): string | n
     return null
   }
 
-  if (url.origin !== new URL(origin).origin || url.search !== '' || url.hash !== '') {
+  if (url.origin !== new URL(origin).origin) {
     return null
   }
 
