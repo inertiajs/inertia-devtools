@@ -1,10 +1,8 @@
 <?php
 
-// Serves the same app from a subdirectory, the way the reporter's Apache deployment symlinks a
-// document root at Laravel's public directory. PHP's built-in server has no mount point of its
-// own, so REQUEST_URI keeps the prefix while SCRIPT_NAME points inside it, which is what Symfony
-// derives Request::getBaseUrl() from. Nothing redirects a request that misses the prefix: the
-// extension has to build the entries URL correctly or record nothing at all.
+// Serves the same app from a subdirectory, the way a symlinked document root does. The built-in
+// server has no mount point, so REQUEST_URI keeps the prefix while SCRIPT_NAME points inside it,
+// which is what Symfony derives Request::getBaseUrl() from. A request missing the prefix 404s.
 
 $mount = '/mounted';
 

@@ -21,10 +21,22 @@ test.describe('Inertia DevTools extension', () => {
       }
     })
 
-    await page.goto(`${subdirectoryUrl}/devtools`)
+    const response = await page.goto(`${subdirectoryUrl}/devtools`)
+
+    // Assert what the recorder reported before waiting on the worker: without these, a mount
+    // point the app never reported reads as an extension bug.
+    expect(response?.status()).toBe(200)
+    expect(response?.headers()['x-inertia-devtools-base-path']).toBe('/mounted')
+    await expect(page.locator('script[data-inertia-devtools-id]')).toHaveAttribute(
+      'data-inertia-devtools-base-path',
+      '/mounted',
+    )
 
     const tabId = await tabIdFor(serviceWorker, page)
-    const initial = await waitForBuffer(serviceWorker, tabId, (list) => list.length === 1)
+
+    expect(tabId).not.toBe(-1)
+
+    const initial = await waitForBuffer(serviceWorker, tabId, (list) => list.length === 1, 15000)
 
     expect(initial[0].__meta.status).toBe(200)
     expect(initial[0].__meta.url).toContain('/mounted/devtools')
@@ -33,7 +45,7 @@ test.describe('Inertia DevTools extension', () => {
     // header path: that is where every later visit reports the mount point.
     await page.evaluate(() => fetch('/mounted/devtools/api-json').then((response) => response.text()))
 
-    const entries = await waitForBuffer(serviceWorker, tabId, (list) => list.length === 2)
+    const entries = await waitForBuffer(serviceWorker, tabId, (list) => list.length === 2, 15000)
 
     expect(entries.some((entry) => entry.__meta.url.includes('/mounted/devtools/api-json'))).toBe(true)
 

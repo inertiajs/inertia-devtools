@@ -5,11 +5,9 @@ import { discardPendingEntry, reservePendingEntry, setOrigin } from './runtimeSt
 
 const MAX_ID_LENGTH = 256
 
-// Origin, id, and mount path all reach the worker from the inspected page, either through a
-// content:initial-id message seeded from a DOM tag or through the observed request URL and its
-// response headers. Validate before building a fetch URL: only same-scheme http(s) origins, and
-// a bounded non-empty id (also percent-encoded below, so path traversal cannot escape the
-// entries endpoint).
+// Origin, id, and mount path all reach the worker from the inspected page, through a DOM tag or
+// through the observed request URL and its headers. Validate before building a fetch URL: http(s)
+// origins only, and a bounded non-empty id, percent-encoded below so traversal cannot escape.
 function isSafeOrigin(origin: string): boolean {
   try {
     const url = new URL(origin)
