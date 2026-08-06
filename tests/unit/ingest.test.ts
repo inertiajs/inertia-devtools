@@ -1,26 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fetchEntry, isSafeBasePath } from '../../src/background/ingest'
+import { fetchEntry } from '../../src/background/ingest'
 import { makeEntry } from './support'
 
 vi.stubGlobal('chrome', {
   runtime: { sendMessage: () => Promise.resolve() },
-})
-
-describe('isSafeBasePath', () => {
-  it('accepts a mount path and rejects one that could leave the entries endpoint', () => {
-    expect(isSafeBasePath('')).toBe(true)
-    expect(isSafeBasePath('/portal')).toBe(true)
-    expect(isSafeBasePath('/apps/portal')).toBe(true)
-    expect(isSafeBasePath('/index.php')).toBe(true)
-
-    expect(isSafeBasePath('/')).toBe(false)
-    expect(isSafeBasePath('portal')).toBe(false)
-    expect(isSafeBasePath('/portal/')).toBe(false)
-    expect(isSafeBasePath('//evil.test')).toBe(false)
-    expect(isSafeBasePath('/portal/../..')).toBe(false)
-    expect(isSafeBasePath('/portal?x=1')).toBe(false)
-    expect(isSafeBasePath('/portal#x')).toBe(false)
-  })
 })
 
 describe('fetchEntry', () => {
@@ -56,15 +39,33 @@ describe('fetchEntry', () => {
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['https://app.test/_inertia/devtools/entries/entry-1'])
   })
 
-  it('ignores a mount path that url parsing would rewrite out of the mount point', async () => {
+  it('keeps a mount path that url parsing only percent-encodes', async () => {
+    const fetchMock = stubFetch('https://app.test/my%20apps/caf%C3%A9')
+
+    await expect(fetchEntry('https://app.test', 'entry-1', '/my apps/café')).resolves.toEqual(entry)
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'https://app.test/my%20apps/caf%C3%A9/_inertia/devtools/entries/entry-1',
+    ])
+  })
+
+  it('refuses a mount path that would leave the mount point instead of falling back to the origin', async () => {
     const fetchMock = stubFetch('https://app.test')
 
+    await expect(fetchEntry('https://app.test', 'entry-1', '/portal/../admin')).resolves.toBeNull()
     await expect(fetchEntry('https://app.test', 'entry-1', '/portal/%2e%2e')).resolves.toBeNull()
     await expect(fetchEntry('https://app.test', 'entry-1', '/portal/%2E%2E/admin')).resolves.toBeNull()
+    await expect(fetchEntry('https://app.test', 'entry-1', '/portal?x=1')).resolves.toBeNull()
+    await expect(fetchEntry('https://app.test', 'entry-1', '/portal#x')).resolves.toBeNull()
     expect(fetchMock).not.toHaveBeenCalled()
+  })
 
-    await expect(fetchEntry('https://app.test', 'entry-1', '/portal/../admin')).resolves.toEqual(entry)
-    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['https://app.test/_inertia/devtools/entries/entry-1'])
+  it('keeps a mount path that reads like another host on the reporting origin', async () => {
+    const fetchMock = stubFetch('https://app.test//evil.test')
+
+    await expect(fetchEntry('https://app.test', 'entry-1', '//evil.test')).resolves.toEqual(entry)
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'https://app.test//evil.test/_inertia/devtools/entries/entry-1',
+    ])
   })
 
   it('rejects an origin or id that cannot be trusted before any request is made', async () => {

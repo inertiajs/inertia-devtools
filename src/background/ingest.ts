@@ -25,31 +25,11 @@ function isSafeId(id: string): boolean {
 }
 
 /**
- * Whether the reported mount path can be concatenated into the entries URL as-is.
- *
- * `?` and `#` would truncate the path and `..` would climb out of the mount point. Encoded
- * spellings clear these checks and are caught by `entryEndpoint`.
- */
-export function isSafeBasePath(basePath: string): boolean {
-  if (basePath === '') {
-    return true
-  }
-
-  if (!basePath.startsWith('/') || basePath.endsWith('/')) {
-    return false
-  }
-
-  return basePath
-    .slice(1)
-    .split('/')
-    .every((segment) => segment.length > 0 && segment !== '.' && segment !== '..' && !/[?#\\]/.test(segment))
-}
-
-/**
  * Build the entries URL under the mount path, or null when parsing rewrites it.
  *
- * Encoded dot segments decode while the URL is parsed, so `/portal/%2e%2e` clears the string
- * checks and still normalizes out of the mount point. Any rewrite is rejected here.
+ * String checks cannot see through encoded spellings: `/portal/%2e%2e` reads as an ordinary
+ * segment and still climbs out. So the parsed result is compared back, decoded, because a path
+ * the parser merely percent-encoded (a space, a non-ASCII name) is legitimate.
  */
 function entryEndpoint(origin: string, basePath: string, id: string): string | null {
   const path = `${basePath}/_inertia/devtools/entries/${encodeURIComponent(id)}`
@@ -62,11 +42,15 @@ function entryEndpoint(origin: string, basePath: string, id: string): string | n
     return null
   }
 
-  if (url.origin !== new URL(origin).origin || url.pathname !== path || url.search !== '' || url.hash !== '') {
+  if (url.origin !== new URL(origin).origin || url.search !== '' || url.hash !== '') {
     return null
   }
 
-  return url.href
+  try {
+    return decodeURIComponent(url.pathname) === `${basePath}/_inertia/devtools/entries/${id}` ? url.href : null
+  } catch {
+    return null
+  }
 }
 
 async function requestEntry(origin: string, basePath: string, id: string): Promise<Entry | null> {
@@ -99,15 +83,16 @@ async function requestEntry(origin: string, basePath: string, id: string): Promi
 /**
  * Fetch a recorded entry from the inspected app after validating page-supplied location data.
  *
- * An app mounted under a subdirectory of its origin serves the endpoint under that same path,
- * which only the recorder can report. Anything it does not report is treated as root-mounted.
+ * An app mounted under a subdirectory serves the endpoint under that same path, which only the
+ * recorder can report. A reported path that fails validation is never downgraded to the root:
+ * on a shared origin that would fetch an unrelated app's entry.
  */
 export async function fetchEntry(origin: string, id: string, basePath = ''): Promise<Entry | null> {
   if (!isSafeOrigin(origin) || !isSafeId(id)) {
     return null
   }
 
-  return requestEntry(origin, isSafeBasePath(basePath) ? basePath : '', id)
+  return requestEntry(origin, basePath, id)
 }
 
 /**
