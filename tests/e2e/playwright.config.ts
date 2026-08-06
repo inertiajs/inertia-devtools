@@ -10,6 +10,11 @@ const runsInCI = !!process.env.CI
 const url = 'http://127.0.0.1:13337'
 const appDir = new URL('./app', import.meta.url).pathname
 
+// The mount path is spelled in `subdirectory-server.php` too, which the built-in server reads
+// as its own router and cannot import from here.
+const subdirectoryPort = 13338
+export const subdirectoryUrl = `http://127.0.0.1:${subdirectoryPort}/mounted`
+
 export default defineConfig({
   testDir: '.',
   testMatch: /.*\.spec\.ts$/,
@@ -47,6 +52,16 @@ export default defineConfig({
       command: 'bash setup.sh && PHP_CLI_SERVER_WORKERS=8 php artisan serve --port=13337',
       cwd: appDir,
       url: 'http://127.0.0.1:13337/devtools',
+      reuseExistingServer: true,
+      timeout: 120 * 1000,
+    },
+    {
+      // The same app again, mounted under a subdirectory, for the specs that cover an install
+      // that is not served from the root of its origin. `setup.sh` belongs to the server above:
+      // running it here too would race that one over composer and the app key.
+      command: `PHP_CLI_SERVER_WORKERS=8 php -S 127.0.0.1:${subdirectoryPort} subdirectory-server.php`,
+      cwd: appDir,
+      url: `${subdirectoryUrl}/devtools`,
       reuseExistingServer: true,
       timeout: 120 * 1000,
     },
