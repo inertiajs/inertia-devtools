@@ -4,9 +4,19 @@ on: [push, pull_request]
 permissions:
   contents: read
 
+# Superseded runs are cancelled. The event name is part of the group because a branch and its
+# pull request would otherwise share one, and the pull_request run skipped below would cancel
+# the push run that is doing the actual work.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build & Test
+    # A branch in this repo fires both events once it has a pull request, so the pull_request
+    # run is kept only for forks, whose pushes never reach this repo.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     timeout-minutes: 15
     runs-on: ubuntu-24.04
 
@@ -44,6 +54,7 @@ jobs:
 
   e2e:
     name: E2E
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     timeout-minutes: 20
     runs-on: ubuntu-24.04
 
@@ -88,3 +99,13 @@ jobs:
 
       - name: Run e2e tests
         run: pnpm exec playwright test -c tests/e2e/playwright.config.ts
+
+      # Screenshots and the first-retry trace are the only way to see what a failing run
+      # actually did: the log names these files but the runner throws them away.
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-results
+          path: test-results/
+          retention-days: 7
