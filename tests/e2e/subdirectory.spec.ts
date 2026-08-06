@@ -26,7 +26,10 @@ test.describe('Inertia DevTools extension', () => {
     // Assert what the recorder reported before waiting on the worker: without these, a mount
     // point the app never reported reads as an extension bug.
     expect(response?.status()).toBe(200)
-    expect(response?.headers()['x-inertia-devtools-base-path']).toBe('/mounted')
+    expect(response?.headers()).toMatchObject({
+      'x-inertia-devtools-id': expect.any(String),
+      'x-inertia-devtools-base-path': '/mounted',
+    })
     await expect(page.locator('script[data-inertia-devtools-id]')).toHaveAttribute(
       'data-inertia-devtools-base-path',
       '/mounted',
