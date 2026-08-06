@@ -39,8 +39,16 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Build
-        run: pnpm build
+      - name: Build Chrome
+        run: pnpm build:chrome
+
+      - name: Build Firefox
+        run: pnpm build:firefox
+
+      # AMO validates the bundle on submission, so catching a manifest it rejects here beats
+      # finding out during a release. Warnings are informational; only errors fail the step.
+      - name: Validate Firefox bundle
+        run: pnpm dlx web-ext@10 lint --source-dir dist-firefox --self-hosted
 
   e2e:
     name: E2E
@@ -75,7 +83,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps chromium firefox
 
       # Bootstrap the app as explicit steps (not only inside the Playwright webServer
       # command) so composer/boot failures surface here with full, untruncated output.

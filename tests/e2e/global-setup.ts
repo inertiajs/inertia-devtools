@@ -15,8 +15,12 @@ function run(command: string, args: string[], cwd: string): void {
 }
 
 export default async () => {
-  // Build the extension bundle the fixtures load as an unpacked extension.
-  if (!existsSync(resolve(here, '../../dist/manifest.json'))) {
-    run('pnpm', ['build'], repoRoot)
+  // Build the bundles the fixtures load as an extension, one per browser project.
+  if (!existsSync(resolve(here, '../../dist-chrome/manifest.json'))) {
+    run('pnpm', ['build:chrome'], repoRoot)
+  }
+
+  if (!existsSync(resolve(here, '../../dist-firefox/manifest.json'))) {
+    run('pnpm', ['build:firefox'], repoRoot)
   }
 }

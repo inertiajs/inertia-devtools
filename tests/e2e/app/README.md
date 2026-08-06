@@ -27,6 +27,6 @@ pnpm install && pnpm build   # or `pnpm dev` for vite HMR
 php artisan serve --port=13337
 ```
 
-Build the extension from the repo root (`pnpm build`) and load its `dist/`
+Build the extension from the repo root (`pnpm build:chrome`) and load its `dist-chrome/`
 directory as an unpacked extension in Chrome, then open DevTools and visit
 <http://127.0.0.1:13337/>. The home page links to every scenario.

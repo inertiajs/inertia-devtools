@@ -10,7 +10,7 @@ const here = dirname(fileURLToPath(import.meta.url))
 
 export type ExtensionEntry = Entry
 
-export const extensionPath = resolve(here, '../../dist')
+export const extensionPath = resolve(here, '../../dist-chrome')
 
 export const test = base.extend<{
   context: BrowserContext
@@ -21,7 +21,7 @@ export const test = base.extend<{
   // eslint-disable-next-line no-empty-pattern -- Playwright's no-dependency fixture signature
   context: async ({}, use) => {
     if (!existsSync(join(extensionPath, 'manifest.json'))) {
-      throw new Error(`Extension build missing at ${extensionPath}. Run "pnpm build" first.`)
+      throw new Error(`Extension build missing at ${extensionPath}. Run "pnpm build:chrome" first.`)
     }
 
     const userDataDir = await mkdtemp(join(tmpdir(), 'inertia-devtools-'))

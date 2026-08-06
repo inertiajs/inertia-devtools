@@ -3,7 +3,7 @@
   "version": "0.6.5",
   "license": "MIT",
   "private": true,
-  "description": "Chrome DevTools panel for inspecting Inertia.js requests, props, routes, and page state.",
+  "description": "Browser DevTools panel for inspecting Inertia.js requests, props, routes, and page state.",
   "contributors": [
     "Pascal Baljet <pascal@laravel.com>"
   ],
@@ -12,6 +12,7 @@
     "inertiajs",
     "devtools",
     "chrome-extension",
+    "firefox-addon",
     "mv3",
     "developer-tools"
   ],
@@ -28,9 +29,11 @@
     "@lucide/vue": "^1.17.0"
   },
   "scripts": {
-    "dev": "vite build --watch --mode development",
-    "build": "vite build",
-    "clean": "rm -rf dist",
+    "dev:chrome": "EXTENSION_TARGET=chrome vite build --watch --mode development",
+    "dev:firefox": "EXTENSION_TARGET=firefox vite build --watch --mode development",
+    "build:chrome": "EXTENSION_TARGET=chrome vite build",
+    "build:firefox": "EXTENSION_TARGET=firefox vite build",
+    "clean": "rm -rf dist-chrome dist-firefox",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

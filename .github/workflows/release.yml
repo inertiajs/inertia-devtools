@@ -37,8 +37,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build
-        run: pnpm build
+      - name: Build Chrome
+        run: pnpm build:chrome
+
+      - name: Build Firefox
+        run: pnpm build:firefox
 
       - name: Package and publish
         id: publish
@@ -46,9 +49,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="${GITHUB_REF_NAME#v}"
-          zip="inertia-devtools-extension-${version}.zip"
-          (cd dist && zip -qr "../${zip}" .)
-          gh release create "$GITHUB_REF_NAME" "$zip" --generate-notes
+          chrome_zip="inertia-devtools-extension-chrome-${version}.zip"
+          firefox_zip="inertia-devtools-extension-firefox-${version}.zip"
+          (cd dist-chrome && zip -qr "../${chrome_zip}" .)
+          (cd dist-firefox && zip -qr "../${firefox_zip}" .)
+          gh release create "$GITHUB_REF_NAME" "$chrome_zip" "$firefox_zip" --generate-notes
 
           notes="$(gh release view "$GITHUB_REF_NAME" --json body --jq .body)"
           {

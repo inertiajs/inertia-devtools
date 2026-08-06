@@ -25,7 +25,13 @@ export default defineConfig({
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
-  projects: [{ name: 'chromium' }],
+  projects: [
+    { name: 'chromium', testIgnore: /firefox\// },
+    // Firefox gets one smoke test rather than the full suite: the add-on has to be installed over
+    // the remote debugging protocol and its pages read the same way, since Playwright loads
+    // extensions in Chromium only. BROWSERS.md carries the manual checklist that covers the rest.
+    { name: 'firefox', testMatch: /firefox\/.*\.spec\.ts$/ },
+  ],
   // The extension only captures data when the app runs through the vite dev server: the
   // `inertia()` vite plugin injects the client devtools instrumentation and real source
   // locations at dev time, which a production build strips. So serve the app in dev mode:

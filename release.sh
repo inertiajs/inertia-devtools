@@ -32,20 +32,18 @@ case $choice in
   *) echo "❌ Invalid choice. Exiting."; exit 1 ;;
 esac
 
-# Bump package.json without tagging, then read back the resolved version
+# Bump package.json without tagging, then read back the resolved version. Both manifests are
+# generated from this version at build time (manifest.config.ts), so there is nothing to mirror.
 pnpm version "$RELEASE_TYPE" --no-git-tag-version >/dev/null
 NEW_VERSION=$(node -p "require('./package.json').version")
 TAG="v$NEW_VERSION"
 
-# Chrome reads the version from manifest.json, so keep it in lockstep with package.json
-node -e "const fs=require('fs');const m=require('./manifest.json');m.version='$NEW_VERSION';fs.writeFileSync('./manifest.json',JSON.stringify(m,null,2)+'\n')"
-
-# Re-format so the committed files already match oxfmt. Otherwise JSON.stringify expands the
-# manifest arrays and CI's coding-standards job commits a follow-up "Fix code style" change.
+# Re-format so the committed files already match oxfmt, otherwise CI's coding-standards job
+# commits a follow-up "Fix code style" change.
 pnpm run format >/dev/null
 
-# Commit and push the tag. Pushing the tag triggers the Release workflow, which builds,
-# packages the zip, and publishes the GitHub release with the zip attached.
+# Commit and push the tag. Pushing the tag triggers the Release workflow, which builds both
+# targets and publishes the GitHub release with the Chrome and Firefox zips attached.
 git add -A
 git commit -m "$TAG"
 git tag -a "$TAG" -m "$TAG"
@@ -55,4 +53,5 @@ git push --tags
 echo
 echo "✅ Tagged $TAG and pushed. CI will build, package, and publish the release."
 echo "🔗 https://github.com/inertiajs/inertia-devtools/actions"
-echo "📦 When the Release workflow finishes, grab the zip from the release and upload it to the Chrome Web Store."
+echo "📦 When the Release workflow finishes, upload the zips: the -chrome one to the Chrome Web Store,"
+echo "   the -firefox one to addons.mozilla.org (see BROWSERS.md for the source-code upload it needs)."

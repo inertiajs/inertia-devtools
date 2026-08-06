@@ -23,13 +23,12 @@ function stubChrome(openTabIds: number[] = []): void {
         },
       },
     },
+    // Deliberately without the ResourceType/RuleActionType/HeaderOperation enum objects: Firefox
+    // ships none of them, so reaching for one has to fail here rather than in a Firefox install.
     declarativeNetRequest: {
       updateSessionRules: async (update: SessionRuleUpdate) => {
         ruleUpdates.push(update)
       },
-      ResourceType: { XMLHTTPREQUEST: 'xmlhttprequest', MAIN_FRAME: 'main_frame', SUB_FRAME: 'sub_frame' },
-      RuleActionType: { MODIFY_HEADERS: 'modifyHeaders' },
-      HeaderOperation: { SET: 'set' },
     },
     tabs: { query: async () => openTabIds.map((id) => ({ id })) },
   })
@@ -70,7 +69,12 @@ describe('writeDnrRule', () => {
     await rememberProvenHost('http://localhost:13337')
     await ensureTabRule(7)
 
-    expect(lastAddedRule()?.condition).toMatchObject({ tabIds: [7], requestDomains: ['localhost'] })
+    expect(lastAddedRule()?.condition).toMatchObject({
+      tabIds: [7],
+      requestDomains: ['localhost'],
+      resourceTypes: ['xmlhttprequest', 'main_frame', 'sub_frame'],
+    })
+    expect(lastAddedRule()?.action.type).toBe('modifyHeaders')
     expect(lastAddedRule()?.action.requestHeaders).toEqual([
       { header: 'x-inertia-devtools-tab', operation: 'set', value: storage['tab-7'] },
     ])

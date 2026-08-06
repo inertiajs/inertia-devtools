@@ -3,6 +3,19 @@ import { DEVTOOLS_TAB_HEADER, TAB_STORAGE_KEY_PREFIX } from '../constants'
 import { getProvenHosts } from './hosts'
 import { clearTab, migrateTab } from './runtimeStore'
 
+/**
+ * Request kinds the tab header is stamped on.
+ *
+ * Spelled as the wire strings both browsers accept: Chrome exposes `ResourceType`, `RuleActionType`
+ * and `HeaderOperation` as runtime enum objects, Firefox does not, so reading a member there throws
+ * and the rule is silently never installed.
+ */
+const RULE_RESOURCE_TYPES = ['xmlhttprequest', 'main_frame', 'sub_frame'] as chrome.declarativeNetRequest.ResourceType[]
+
+const MODIFY_HEADERS = 'modifyHeaders' as chrome.declarativeNetRequest.RuleActionType
+
+const SET_HEADER = 'set' as chrome.declarativeNetRequest.HeaderOperation
+
 function tabStorageKey(tabId: number): string {
   return `${TAB_STORAGE_KEY_PREFIX}${tabId}`
 }
@@ -41,18 +54,14 @@ export async function writeDnrRule(tabId: number, uuid: string): Promise<void> {
           condition: {
             tabIds: [tabId],
             requestDomains: provenHosts,
-            resourceTypes: [
-              chrome.declarativeNetRequest.ResourceType.XMLHTTPREQUEST,
-              chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
-              chrome.declarativeNetRequest.ResourceType.SUB_FRAME,
-            ],
+            resourceTypes: RULE_RESOURCE_TYPES,
           },
           action: {
-            type: chrome.declarativeNetRequest.RuleActionType.MODIFY_HEADERS,
+            type: MODIFY_HEADERS,
             requestHeaders: [
               {
                 header: DEVTOOLS_TAB_HEADER,
-                operation: chrome.declarativeNetRequest.HeaderOperation.SET,
+                operation: SET_HEADER,
                 value: uuid,
               },
             ],
