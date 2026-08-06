@@ -44,6 +44,8 @@ describe('isBackgroundMessage', () => {
   it('validates each known message type by its required fields', () => {
     expect(isBackgroundMessage({ type: 'content:initial-id', id: 'x', origin: 'o' })).toBe(true)
     expect(isBackgroundMessage({ type: 'content:initial-id', id: 'x' })).toBe(false)
+    expect(isBackgroundMessage({ type: 'content:initial-id', id: 'x', origin: 'o', basePath: '/portal' })).toBe(true)
+    expect(isBackgroundMessage({ type: 'content:initial-id', id: 'x', origin: 'o', basePath: 123 })).toBe(false)
     expect(
       isBackgroundMessage({
         type: 'content:cache-hit',

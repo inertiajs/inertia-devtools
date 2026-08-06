@@ -9,11 +9,14 @@ const SOURCE = 'inertia-devtools'
 
 type MessageListener = (event: { source: unknown; data: unknown }) => void
 
-function setup(options: { tagText?: string | null; readyState?: string } = {}) {
+function setup(options: { tagText?: string | null; tagBasePath?: string; readyState?: string } = {}) {
   const sendMessage = vi.fn<(message: unknown) => unknown>(() => undefined)
   const listeners: Record<string, MessageListener> = {}
 
-  const tag = options.tagText === undefined ? null : { textContent: options.tagText }
+  const tag =
+    options.tagText === undefined
+      ? null
+      : { textContent: options.tagText, getAttribute: () => options.tagBasePath ?? null }
 
   const win = {
     addEventListener: (type: string, fn: MessageListener) => {
@@ -227,6 +230,18 @@ describe('content-script trust boundary', () => {
       type: 'content:initial-id',
       id: 'entry-42',
       origin: 'https://app.test',
+    })
+  })
+
+  it('forwards the mount path stamped on the DOM tag by a subdirectory install', async () => {
+    const mounted = setup({ tagText: JSON.stringify('entry-42'), tagBasePath: '/portal' })
+    await importContentScript()
+
+    expect(mounted.sendMessage).toHaveBeenCalledWith({
+      type: 'content:initial-id',
+      id: 'entry-42',
+      origin: 'https://app.test',
+      basePath: '/portal',
     })
   })
 
