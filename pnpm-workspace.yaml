@@ -1,5 +1,0 @@
-# pnpm 11 reads these settings here rather than from package.json. geckodriver fetches its binary in
-# a postinstall script, so the driver is in place after install instead of during a test run.
-allowBuilds:
-  '@tailwindcss/oxide': true
-  geckodriver: true

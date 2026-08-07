@@ -1,60 +1,17 @@
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { firefox } from '@playwright/test'
-import { download as downloadGeckodriver, start as startGeckodriver } from 'geckodriver'
 import { Builder, By, Key, until, type WebDriver, type WebElement } from 'selenium-webdriver'
 import { Options } from 'selenium-webdriver/firefox.js'
+import { startGeckodriver } from './geckodriver'
 import { attachToBackground, type ConsoleEval, evalAsync, freePorts, Rdp } from './rdp'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const addonPath = resolve(here, '../../../dist-firefox')
 
-// geckodriver's wrapper logs a banner per start, which would repeat once per test.
-process.env.WDIO_LOG_LEVEL ??= 'silent'
-
 export const ADDON_ID = 'devtools@inertiajs.com'
 
 export const APP_URL = 'http://127.0.0.1:13337'
-
-let driverBinary: Promise<string> | undefined
-
-/**
- * Resolve the geckodriver binary once per worker.
- *
- * Left to itself, `start` resolves the binary on every call, and resolving it without a pinned
- * version means fetching the latest release number over the network. Once per worker keeps that to
- * one round trip instead of one per test.
- */
-function geckodriverBinary(): Promise<string> {
-  driverBinary ??= downloadGeckodriver()
-
-  return driverBinary
-}
-
-/**
- * Wait until geckodriver answers.
- *
- * Its `start` resolves as soon as the process is spawned, and a bind probe is no help: geckodriver
- * listens on `0.0.0.0`, which macOS lets a `127.0.0.1` probe bind alongside, so the port reads as
- * free while the driver is up. Asking the driver itself is the only reliable signal.
- */
-async function waitForDriver(port: number, timeout = 20_000): Promise<void> {
-  const deadline = Date.now() + timeout
-
-  while (Date.now() < deadline) {
-    const responded = await fetch(`http://127.0.0.1:${port}/status`)
-      .then((response) => response.ok)
-      .catch(() => false)
-
-    if (responded) {
-      return
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 100))
-  }
-
-  throw new Error(`geckodriver never answered on port ${port}`)
-}
 
 /**
  * Firefox is driven by geckodriver, not Playwright.
@@ -76,8 +33,7 @@ export class FirefoxSession {
   static async start(parallelIndex: number): Promise<FirefoxSession> {
     const [driverPort, debuggerPort] = await freePorts(parallelIndex, 2)
 
-    const geckodriver = await startGeckodriver({ port: driverPort, customGeckoDriverPath: await geckodriverBinary() })
-    await waitForDriver(driverPort)
+    const geckodriver = await startGeckodriver(driverPort)
 
     const options = new Options()
       // Playwright's Firefox is already downloaded for the suite and is a normal Gecko build as far
