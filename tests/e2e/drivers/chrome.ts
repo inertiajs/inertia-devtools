@@ -4,8 +4,6 @@ import { fileURLToPath } from 'node:url'
 import { chromium } from '@playwright/test'
 import { Builder } from 'selenium-webdriver'
 import { Options } from 'selenium-webdriver/chrome.js'
-import { startChromedriver } from './chromedriver'
-import { freePorts } from './rdp'
 import { BrowserSession } from './session'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -27,19 +25,16 @@ function unpackedExtensionId(path: string): string {
 export class ChromeSession extends BrowserSession {
   readonly extensionId = unpackedExtensionId(extensionPath)
 
-  private constructor(
-    driver: ConstructorParameters<typeof BrowserSession>[0],
-    appHandle: string,
-    private chromedriver: { kill: () => void },
-  ) {
+  private constructor(driver: ConstructorParameters<typeof BrowserSession>[0], appHandle: string) {
     super(driver, appHandle)
   }
 
-  static async start(slot: number): Promise<ChromeSession> {
-    const [driverPort] = await freePorts(slot, 1)
-    const chromedriver = await startChromedriver(driverPort)
-
+  static async start(): Promise<ChromeSession> {
     const options = new Options()
+      // Chrome for Testing, which Playwright already downloads. Stable Chrome refuses
+      // `--load-extension`, so an ordinary install (which is what Selenium Manager would find or
+      // fetch) starts fine and silently carries no extension. Selenium Manager still supplies the
+      // chromedriver, matched against this binary's version.
       .setChromeBinaryPath(chromium.executablePath())
       .addArguments(`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`, '--no-sandbox')
 
@@ -48,13 +43,11 @@ export class ChromeSession extends BrowserSession {
       options.addArguments('--headless=new')
     }
 
-    const driver = await new Builder()
-      .forBrowser('chrome')
-      .setChromeOptions(options)
-      .usingServer(`http://127.0.0.1:${driverPort}`)
-      .build()
+    // No driver path, port or readiness wait: Selenium Manager (bundled with selenium-webdriver)
+    // resolves a chromedriver matching this binary, caches it, and the bindings start it.
+    const driver = await new Builder().forBrowser('chrome').setChromeOptions(options).build()
 
-    const session = new ChromeSession(driver, await driver.getWindowHandle(), chromedriver)
+    const session = new ChromeSession(driver, await driver.getWindowHandle())
     await session.waitForWorker()
 
     return session
@@ -95,6 +88,5 @@ export class ChromeSession extends BrowserSession {
 
   async stop(): Promise<void> {
     await this.driver.quit()
-    this.chromedriver.kill()
   }
 }

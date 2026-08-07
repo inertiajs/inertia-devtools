@@ -3,9 +3,6 @@ import { ChromeSession } from './chrome'
 import { FirefoxSession } from './firefox'
 import type { BrowserSession } from './session'
 
-/** Port slots reserved per browser project, comfortably above any worker count. */
-const PROJECT_SLOTS = 32
-
 /**
  * One suite, two browsers.
  *
@@ -16,12 +13,11 @@ const PROJECT_SLOTS = 32
 export const test = base.extend<{ session: BrowserSession }>({
   // eslint-disable-next-line no-empty-pattern -- Playwright's no-dependency fixture signature
   session: async ({}, use, testInfo) => {
-    const firefox = testInfo.project.name === 'firefox'
-    const start = firefox ? FirefoxSession.start : ChromeSession.start
-
-    // Both projects run at once, so the port slot has to separate them as well as the workers within
-    // each: worker 0 of one project must not land on worker 0 of the other.
-    const session = await start(testInfo.parallelIndex + (firefox ? PROJECT_SLOTS : 0))
+    // Only Firefox needs a port of its own, for the debugger server the panel is read through.
+    const session =
+      testInfo.project.name === 'firefox'
+        ? await FirefoxSession.start(testInfo.parallelIndex)
+        : await ChromeSession.start()
 
     await use(session)
     await session.stop()

@@ -114,19 +114,13 @@ jobs:
           name: extension-builds
           path: .
 
-      - name: Install Playwright Chromium
+      # Only Chrome needs a browser installed here, and only because stable Chrome refuses
+      # `--load-extension`: the tests need Chrome for Testing, which this downloads. Everything else
+      # comes from Selenium Manager, bundled with selenium-webdriver, which resolves both drivers and
+      # downloads Firefox itself.
+      - name: Install Chrome for Testing
         if: matrix.browser == 'chromium'
         run: pnpm exec playwright install --with-deps chromium
-
-      # A real Firefox, not Playwright's build: that one does not inject extension content scripts, so
-      # the suite would pass while page state and request lineage were dead (see
-      # tests/e2e/drivers/firefox.ts). geckodriver and chromedriver download themselves on first use,
-      # each at a pinned version.
-      - name: Install Firefox
-        if: matrix.browser == 'firefox'
-        uses: browser-actions/setup-firefox@0bc507ddf224827e3b1af68e014d5e42ab93e795 # v1.7.2
-        with:
-          firefox-version: latest
 
       # Bootstrap the app as explicit steps (not only inside the Playwright webServer
       # command) so composer/boot failures surface here with full, untruncated output.

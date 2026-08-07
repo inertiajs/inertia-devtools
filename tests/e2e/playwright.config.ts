@@ -15,10 +15,14 @@ export default defineConfig({
   testMatch: /.*\.spec\.ts$/,
   globalSetup: './global-setup.ts',
   fullyParallel: true,
-  workers: runsInCI ? 4 : undefined,
+  // Each worker drives a whole browser through a driver of its own, which is heavier than Playwright's
+  // own sessions: four at once on a CI runner starve each other badly enough to time out in setup.
+  workers: runsInCI ? 2 : undefined,
   retries: runsInCI ? 1 : 0,
   forbidOnly: !!runsInCI,
-  timeout: 30 * 1000,
+  // Launching a browser through WebDriver, installing the extension into it and attaching costs a few
+  // seconds before a test body starts, so the budget is wider than the Playwright suite needs.
+  timeout: 60 * 1000,
   expect: { timeout: 10 * 1000 },
   use: {
     baseURL: url,

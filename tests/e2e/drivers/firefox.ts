@@ -1,11 +1,9 @@
-import { existsSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Builder } from 'selenium-webdriver'
 import { Options } from 'selenium-webdriver/firefox.js'
-import { startGeckodriver } from './geckodriver'
 import { attachToBackground, type ConsoleEval, evalAsync, freePorts, Rdp } from './rdp'
 import { BrowserSession } from './session'
 
@@ -18,62 +16,28 @@ export const ADDON_ID = 'devtools@inertiajs.com'
 // map that stores it makes the extension's origin known before the add-on exists.
 const EXTENSION_UUID = 'f7c0d9e2-3a41-4b58-9e6c-1d2f3a4b5c6d'
 
-const CANDIDATE_BINARIES = [
-  '/Applications/Firefox.app/Contents/MacOS/firefox',
-  '/usr/bin/firefox',
-  '/snap/bin/firefox',
-  '/Applications/Firefox Developer Edition.app/Contents/MacOS/firefox',
-]
-
-/**
- * Find a real Firefox, and refuse to run without one.
- *
- * Playwright's bundled Firefox must not be used here, even though the suite already downloads it: that
- * build does not inject extension content scripts. Nothing errors, so entries still arrive (those come
- * from `webRequest`) while page state stays empty and every `visitId` and `batchId` is null. A suite on
- * that build reports green over a recorder that is half dead.
- */
-function firefoxBinary(): string {
-  const configured = process.env.FIREFOX_BINARY
-
-  if (configured) {
-    if (!existsSync(configured)) {
-      throw new Error(`FIREFOX_BINARY points at ${configured}, which does not exist`)
-    }
-
-    return configured
-  }
-
-  const found = CANDIDATE_BINARIES.find((candidate) => existsSync(candidate))
-
-  if (!found) {
-    throw new Error(
-      "No Firefox found. Install Firefox or point FIREFOX_BINARY at one. Playwright's bundled Firefox " +
-        'cannot stand in: it does not inject extension content scripts.',
-    )
-  }
-
-  return found
-}
-
 export class FirefoxSession extends BrowserSession {
   private constructor(
     driver: ConstructorParameters<typeof BrowserSession>[0],
     appHandle: string,
     readonly rdp: Rdp,
     readonly background: ConsoleEval,
-    private geckodriver: { kill: () => void },
   ) {
     super(driver, appHandle)
   }
 
   static async start(slot: number): Promise<FirefoxSession> {
-    const [driverPort, debuggerPort] = await freePorts(slot, 2)
-    const geckodriver = await startGeckodriver(driverPort)
+    // Only the debugger server needs a port of our choosing; Selenium Manager resolves geckodriver
+    // and the bindings pick its port themselves.
+    const [debuggerPort] = await freePorts(slot, 1)
     const profileDir = await mkdtemp(join(tmpdir(), 'inertia-devtools-firefox-'))
 
     const options = new Options()
-      .setBinary(firefoxBinary())
+      // Selenium Manager downloads and caches a real Firefox for this. Playwright's bundled Firefox
+      // must not be used: that build does not inject extension content scripts, so entries still
+      // arrive off `webRequest` while page state stays empty and every visitId and batchId is null,
+      // which reads as a green suite over a half-dead recorder.
+      .setBrowserVersion('stable')
       .setProfile(profileDir)
       .setPreference('devtools.debugger.remote-enabled', true)
       .setPreference('devtools.debugger.prompt-connection', false)
@@ -85,11 +49,7 @@ export class FirefoxSession extends BrowserSession {
       options.addArguments('-headless')
     }
 
-    const driver = await new Builder()
-      .forBrowser('firefox')
-      .setFirefoxOptions(options)
-      .usingServer(`http://127.0.0.1:${driverPort}`)
-      .build()
+    const driver = await new Builder().forBrowser('firefox').setFirefoxOptions(options).build()
 
     // A directory is zipped by the driver, so the build needs no packaging step. Temporary, because a
     // permanent install would demand a signed add-on.
@@ -98,7 +58,7 @@ export class FirefoxSession extends BrowserSession {
     const client = await Rdp.connect(debuggerPort)
     const background = await attachToBackground(client, ADDON_ID)
 
-    return new FirefoxSession(driver, await driver.getWindowHandle(), client, background, geckodriver)
+    return new FirefoxSession(driver, await driver.getWindowHandle(), client, background)
   }
 
   /**
@@ -132,6 +92,5 @@ export class FirefoxSession extends BrowserSession {
   async stop(): Promise<void> {
     this.rdp.close()
     await this.driver.quit()
-    this.geckodriver.kill()
   }
 }
