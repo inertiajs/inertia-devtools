@@ -85,6 +85,32 @@ export abstract class BrowserSession {
     return result
   }
 
+  /**
+   * Do not navigate until the background is listening.
+   *
+   * Its `webRequest.onHeadersReceived` listener is what records an entry and what applies the
+   * `?max_entries=` cap, so a navigation that beats it awake is simply not seen. Chrome's worker and
+   * Firefox's event page are both started lazily, and Playwright's `serviceWorker` fixture used to
+   * wait for this implicitly; through WebDriver it has to be asked for.
+   */
+  async waitForBackground(timeout = 20_000): Promise<void> {
+    const deadline = Date.now() + timeout
+
+    while (Date.now() < deadline) {
+      const alive = await this.fromExtensionPage<boolean>(
+        `extension.runtime.sendMessage({ type: 'panel:hydrate', tabId: -1 }).then(() => done(true), () => done(false))`,
+      ).catch(() => false)
+
+      if (alive) {
+        return
+      }
+
+      await new Promise((wait) => setTimeout(wait, 100))
+    }
+
+    throw new Error('The extension background never answered')
+  }
+
   /** The tab id the recorder keys every entry on. */
   async appTabId(): Promise<number> {
     const tabs = await this.fromExtensionPage<Array<{ id: number; url: string }>>(

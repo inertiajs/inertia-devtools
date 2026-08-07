@@ -58,7 +58,10 @@ export class FirefoxSession extends BrowserSession {
     const client = await Rdp.connect(debuggerPort)
     const background = await attachToBackground(client, ADDON_ID)
 
-    return new FirefoxSession(driver, await driver.getWindowHandle(), client, background)
+    const session = new FirefoxSession(driver, await driver.getWindowHandle(), client, background)
+    await session.waitForBackground()
+
+    return session
   }
 
   /**
