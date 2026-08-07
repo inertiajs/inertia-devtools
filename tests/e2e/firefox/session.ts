@@ -64,6 +64,13 @@ export class FirefoxSession {
     return new FirefoxSession(driver, client, background, await driver.getWindowHandle(), geckodriver)
   }
 
+  /** What the driver actually connected to, so a spec can prove it is not running on Chrome. */
+  async browser(): Promise<{ name: string; version: string }> {
+    const capabilities = await this.driver.getCapabilities()
+
+    return { name: String(capabilities.getBrowserName()), version: String(capabilities.getBrowserVersion()) }
+  }
+
   /** Drive the app in its own tab. */
   async openApp(path: string): Promise<void> {
     await this.driver.switchTo().window(this.appHandle)

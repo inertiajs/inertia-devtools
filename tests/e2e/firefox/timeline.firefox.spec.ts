@@ -2,6 +2,11 @@ import { By, until } from 'selenium-webdriver'
 import { expect, test } from './fixtures'
 
 test('it records a visit and renders it on the timeline', async ({ firefox }) => {
+  const browser = await firefox.browser()
+
+  expect(browser.name).toBe('firefox')
+  expect(Number.parseInt(browser.version, 10)).toBeGreaterThanOrEqual(140)
+
   await firefox.openApp('/devtools')
   await firefox.driver.findElement(By.linkText('Navigate')).click()
   await firefox.driver.wait(until.elementLocated(By.css('#user-name')), 10_000)
