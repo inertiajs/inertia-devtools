@@ -26,6 +26,18 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+          # The e2e app is a second pnpm project with its own lockfile, so both belong in the key or
+          # its install never comes from the store.
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            tests/e2e/app/pnpm-lock.yaml
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          tools: composer
+          extensions: mbstring, dom, xml, curl, fileinfo, tokenizer, ctype, filter, session, openssl, intl, bcmath, sqlite3, pdo_sqlite
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -50,10 +62,22 @@ jobs:
       - name: Validate Firefox bundle
         run: pnpm dlx web-ext@10 lint --source-dir dist-firefox --self-hosted
 
-      # The e2e jobs load these instead of building their own, so every browser tests the same
-      # bytes and no job repeats a build. `tests/e2e/global-setup.ts` only builds what is missing.
+      # Composer install is the same work for every browser, so it happens once here and the e2e jobs
+      # restore it. A cache rather than an artifact: vendor/ is 5,000-odd small files, which an artifact
+      # would zip and transfer three times, and a cache also survives into the next run.
+      - name: Cache e2e app vendor
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: tests/e2e/app/vendor
+          key: composer-${{ runner.os }}-${{ hashFiles('tests/e2e/app/composer.lock') }}
+
+      - name: Bootstrap e2e app
+        run: bash tests/e2e/app/setup.sh
+
+      # The e2e jobs load these instead of building their own, so every browser tests the same bytes
+      # and no job repeats a build. `tests/e2e/global-setup.ts` only builds what is missing.
       - name: Upload extension builds
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: extension-builds
           path: |
@@ -99,29 +123,41 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+          # The e2e app is a second pnpm project with its own lockfile, so both belong in the key or
+          # its install never comes from the store.
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            tests/e2e/app/pnpm-lock.yaml
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Download extension builds
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: extension-builds
           path: .
 
+      # Restore only: the build job filled this. On a miss `setup.sh` below installs, so a cold cache
+      # costs time rather than correctness.
+      - name: Restore e2e app vendor
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: tests/e2e/app/vendor
+          key: composer-${{ runner.os }}-${{ hashFiles('tests/e2e/app/composer.lock') }}
+
       # No browser or driver install step: Selenium Manager, bundled with selenium-webdriver, fetches
       # both and pairs them (tests/e2e/drivers/fixtures.ts). This only keeps them between runs.
       - name: Cache Selenium browsers and drivers
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/selenium
           key: selenium-${{ runner.os }}-${{ matrix.project }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             selenium-${{ runner.os }}-${{ matrix.project }}-
 
-      # Bootstrap the app as explicit steps (not only inside the Playwright webServer
-      # command) so composer/boot failures surface here with full, untruncated output.
-      # The app runs through the vite dev server (started by Playwright), so no build here.
+      # Cheap once vendor is restored: composer is skipped, and this seeds .env and the app key, which
+      # are quick enough not to be worth shipping between jobs.
       - name: Bootstrap e2e app
         run: bash tests/e2e/app/setup.sh
 
@@ -130,3 +166,27 @@ jobs:
 
       - name: Run e2e tests
         run: pnpm exec playwright test -c tests/e2e/playwright.config.ts --project=${{ matrix.project }}
+
+  # The artifact only exists to hand work from one job to the next, so it goes as soon as the last
+  # browser is done rather than sitting out its retention day.
+  cleanup:
+    name: Discard extension builds
+    timeout-minutes: 5
+    runs-on: ubuntu-24.04
+    needs: e2e
+    if: always()
+
+    permissions:
+      actions: write
+
+    steps:
+      - name: Delete the artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          id="$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+            --jq '.artifacts[] | select(.name == "extension-builds") | .id')"
+
+          if [ -n "$id" ]; then
+            gh api --method DELETE "repos/${{ github.repository }}/actions/artifacts/$id"
+          fi
