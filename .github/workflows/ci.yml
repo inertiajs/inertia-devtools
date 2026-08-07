@@ -50,10 +50,38 @@ jobs:
       - name: Validate Firefox bundle
         run: pnpm dlx web-ext@10 lint --source-dir dist-firefox --self-hosted
 
+      # The e2e jobs load these instead of building their own, so every browser tests the same
+      # bytes and no job repeats a build. `tests/e2e/global-setup.ts` only builds what is missing.
+      - name: Upload extension builds
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: extension-builds
+          path: |
+            dist-chrome
+            dist-firefox
+          if-no-files-found: error
+          retention-days: 1
+
   e2e:
-    name: E2E
+    name: E2E (${{ matrix.project }})
     timeout-minutes: 20
     runs-on: ubuntu-24.04
+    needs: build
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The original suite, on Playwright's own Chromium: the only browser it can load an
+          # extension into.
+          - project: chromium
+            browser: chromium
+          # The shared suite (tests/e2e/shared), which runs the same specs on both browsers through
+          # WebDriver. Chrome needs Playwright's Chromium as the binary chromedriver launches.
+          - project: chromium-selenium
+            browser: chromium
+          - project: firefox
+            browser: firefox
 
     steps:
       - name: Checkout
@@ -82,14 +110,23 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Download extension builds
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: extension-builds
+          path: .
+
       - name: Install Playwright Chromium
+        if: matrix.browser == 'chromium'
         run: pnpm exec playwright install --with-deps chromium
 
       # A real Firefox, not Playwright's build: that one does not inject extension content scripts, so
-      # the suite would pass while page state and request lineage were dead (tests/e2e/drivers/firefox.ts).
-      # The driver binaries download themselves on first use, per pinned version.
+      # the suite would pass while page state and request lineage were dead (see
+      # tests/e2e/drivers/firefox.ts). geckodriver and chromedriver download themselves on first use,
+      # each at a pinned version.
       - name: Install Firefox
-        uses: browser-actions/setup-firefox@v1
+        if: matrix.browser == 'firefox'
+        uses: browser-actions/setup-firefox@0bc507ddf224827e3b1af68e014d5e42ab93e795 # v1.7.2
         with:
           firefox-version: latest
 
@@ -103,4 +140,4 @@ jobs:
         run: pnpm --dir tests/e2e/app install
 
       - name: Run e2e tests
-        run: pnpm exec playwright test -c tests/e2e/playwright.config.ts
+        run: pnpm exec playwright test -c tests/e2e/playwright.config.ts --project=${{ matrix.project }}
