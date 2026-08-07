@@ -71,15 +71,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # The shared suite (tests/e2e/shared) runs the same specs on both browsers through WebDriver.
-          # Chrome needs Playwright's Chromium as the binary chromedriver launches.
-          - project: chromium-selenium
-            browser: chromium
-          - project: firefox
-            browser: firefox
-          # The `chromium` project, the original Playwright suite, is deliberately not here while the
-          # shared suite grows to cover it. Run it locally with `pnpm test:e2e:chrome`.
+        # The shared suite (tests/e2e/shared) runs the same specs on both browsers through WebDriver.
+        # The `chromium` project, the original Playwright suite, is deliberately absent while the
+        # shared suite grows to cover it. Run that one locally with `pnpm test:e2e:chrome`.
+        project: [chromium-selenium, firefox]
 
     steps:
       - name: Checkout
@@ -114,13 +109,15 @@ jobs:
           name: extension-builds
           path: .
 
-      # Only Chrome needs a browser installed here, and only because stable Chrome refuses
-      # `--load-extension`: the tests need Chrome for Testing, which this downloads. Everything else
-      # comes from Selenium Manager, bundled with selenium-webdriver, which resolves both drivers and
-      # downloads Firefox itself.
-      - name: Install Chrome for Testing
-        if: matrix.browser == 'chromium'
-        run: pnpm exec playwright install --with-deps chromium
+      # No browser or driver install step: Selenium Manager, bundled with selenium-webdriver, fetches
+      # both and pairs them (tests/e2e/drivers/fixtures.ts). This only keeps them between runs.
+      - name: Cache Selenium browsers and drivers
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ~/.cache/selenium
+          key: selenium-${{ runner.os }}-${{ matrix.project }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            selenium-${{ runner.os }}-${{ matrix.project }}-
 
       # Bootstrap the app as explicit steps (not only inside the Playwright webServer
       # command) so composer/boot failures surface here with full, untruncated output.

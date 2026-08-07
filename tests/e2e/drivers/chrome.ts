@@ -1,8 +1,6 @@
-import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { chromium } from '@playwright/test'
 import { Builder } from 'selenium-webdriver'
 import { Options } from 'selenium-webdriver/chrome.js'
 import { BrowserSession } from './session'
@@ -23,18 +21,6 @@ function unpackedExtensionId(path: string): string {
   return [...digest].map((nibble) => String.fromCharCode(97 + Number.parseInt(nibble, 16))).join('')
 }
 
-/** The version Chrome for Testing reports, which is what a matching chromedriver is published for. */
-function chromeVersion(binary: string): string {
-  const reported = spawnSync(binary, ['--version'], { encoding: 'utf8' }).stdout ?? ''
-  const version = reported.trim().split(' ').pop()
-
-  if (!version?.match(/^\d+\./)) {
-    throw new Error(`Could not read a Chrome version out of "${reported.trim()}"`)
-  }
-
-  return version
-}
-
 export class ChromeSession extends BrowserSession {
   readonly extensionId = unpackedExtensionId(extensionPath)
 
@@ -43,18 +29,8 @@ export class ChromeSession extends BrowserSession {
   }
 
   static async start(): Promise<ChromeSession> {
-    const binary = chromium.executablePath()
-
     const options = new Options()
-      // Chrome for Testing, which Playwright already downloads. Stable Chrome refuses
-      // `--load-extension`, so an ordinary install (which is what Selenium Manager finds when left to
-      // itself) starts fine and silently carries no extension.
-      .setChromeBinaryPath(binary)
-      // Selenium Manager is told the version rather than left to detect it. It receives the path
-      // either way, but when detection through that path fails it falls back to whatever is current,
-      // and then pairs a driver for that with this browser: `session not created: This version of
-      // ChromeDriver only supports Chrome version <newer>`.
-      .setBrowserVersion(chromeVersion(binary))
+      .setBrowserVersion('stable')
       .addArguments(`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`, '--no-sandbox')
 
     if (process.env.HEADED !== '1') {

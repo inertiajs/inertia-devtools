@@ -4,6 +4,16 @@ import { FirefoxSession } from './firefox'
 import type { BrowserSession } from './session'
 
 /**
+ * Take the browsers from Selenium Manager rather than from whatever is installed.
+ *
+ * It downloads and caches both browsers and both drivers, always as a matched pair. Neither local
+ * install would do: stable Chrome refuses `--load-extension`, so it starts fine and silently carries
+ * no extension, and a driver picked for it then rejects a Chrome for Testing build outright. On the
+ * Firefox side it removes the variance of whatever build a machine happens to have.
+ */
+process.env.SE_FORCE_BROWSER_DOWNLOAD ??= 'true'
+
+/**
  * One suite, two browsers.
  *
  * The Playwright project name picks the implementation, so a spec under `tests/e2e/shared` never
