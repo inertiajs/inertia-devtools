@@ -1,9 +1,8 @@
+import { existsSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, resolve } from 'node:path'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { firefox } from '@playwright/test'
 import { Builder } from 'selenium-webdriver'
 import { Options } from 'selenium-webdriver/firefox.js'
 import { startGeckodriver } from './geckodriver'
@@ -18,6 +17,44 @@ export const ADDON_ID = 'devtools@inertiajs.com'
 // Firefox mints a random uuid per install and `moz-extension://` URLs are built from it. Seeding the
 // map that stores it makes the extension's origin known before the add-on exists.
 const EXTENSION_UUID = 'f7c0d9e2-3a41-4b58-9e6c-1d2f3a4b5c6d'
+
+const CANDIDATE_BINARIES = [
+  '/Applications/Firefox.app/Contents/MacOS/firefox',
+  '/usr/bin/firefox',
+  '/snap/bin/firefox',
+  '/Applications/Firefox Developer Edition.app/Contents/MacOS/firefox',
+]
+
+/**
+ * Find a real Firefox, and refuse to run without one.
+ *
+ * Playwright's bundled Firefox must not be used here, even though the suite already downloads it: that
+ * build does not inject extension content scripts. Nothing errors, so entries still arrive (those come
+ * from `webRequest`) while page state stays empty and every `visitId` and `batchId` is null. A suite on
+ * that build reports green over a recorder that is half dead.
+ */
+function firefoxBinary(): string {
+  const configured = process.env.FIREFOX_BINARY
+
+  if (configured) {
+    if (!existsSync(configured)) {
+      throw new Error(`FIREFOX_BINARY points at ${configured}, which does not exist`)
+    }
+
+    return configured
+  }
+
+  const found = CANDIDATE_BINARIES.find((candidate) => existsSync(candidate))
+
+  if (!found) {
+    throw new Error(
+      "No Firefox found. Install Firefox or point FIREFOX_BINARY at one. Playwright's bundled Firefox " +
+        'cannot stand in: it does not inject extension content scripts.',
+    )
+  }
+
+  return found
+}
 
 export class FirefoxSession extends BrowserSession {
   private constructor(
@@ -36,9 +73,7 @@ export class FirefoxSession extends BrowserSession {
     const profileDir = await mkdtemp(join(tmpdir(), 'inertia-devtools-firefox-'))
 
     const options = new Options()
-      // Playwright's Firefox is already downloaded for the suite and is a normal Gecko build as far as
-      // Marionette is concerned, which keeps the pinned browser version the only one in play.
-      .setBinary(firefox.executablePath())
+      .setBinary(firefoxBinary())
       .setProfile(profileDir)
       .setPreference('devtools.debugger.remote-enabled', true)
       .setPreference('devtools.debugger.prompt-connection', false)

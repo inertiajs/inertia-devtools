@@ -82,11 +82,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Firefox is here for the geckodriver-driven specs in tests/e2e/firefox: they reuse the browser
-      # Playwright downloads so the version stays pinned with everything else. geckodriver itself
-      # arrives with pnpm install, through the postinstall allowed in pnpm-workspace.yaml.
-      - name: Install Playwright browsers
-        run: pnpm exec playwright install --with-deps chromium firefox
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      # A real Firefox, not Playwright's build: that one does not inject extension content scripts, so
+      # the suite would pass while page state and request lineage were dead (tests/e2e/drivers/firefox.ts).
+      # The driver binaries download themselves on first use, per pinned version.
+      - name: Install Firefox
+        uses: browser-actions/setup-firefox@v1
+        with:
+          firefox-version: latest
 
       # Bootstrap the app as explicit steps (not only inside the Playwright webServer
       # command) so composer/boot failures surface here with full, untruncated output.
