@@ -5,12 +5,13 @@ type Packet = Record<string, unknown> & { from?: string; type?: string }
 type Predicate = (packet: Packet) => boolean
 
 /**
- * Firefox's Remote Debugging Protocol, enough of it to smoke-test the add-on.
+ * Firefox's Remote Debugging Protocol, enough of it to inspect the add-on.
  *
- * Playwright loads extensions in Chromium only, so the add-on is installed the way `web-ext` does
- * it: over RDP, as a temporary add-on. RDP is also the only way to read the extension's own pages,
- * because Juggler never attaches to a privileged `moz-extension://` page, not even one the extension
- * opens itself. Frames are length-prefixed JSON: `<byteLength>:<json>`.
+ * This is the Firefox stand-in for `serviceWorker.evaluate`: geckodriver drives pages but exposes
+ * nothing of an extension's background page, so background state is read here instead. It is also
+ * what opens the panel, because neither driver may navigate to a `moz-extension://` URL and only a
+ * tab the extension opened itself can be driven. Frames are length-prefixed JSON:
+ * `<byteLength>:<json>`.
  */
 export class Rdp {
   private socket: Socket
@@ -133,7 +134,7 @@ export class Rdp {
 /** A JS evaluation channel into one extension page. */
 export type ConsoleEval = (expression: string) => Promise<unknown>
 
-export function consoleEval(client: Rdp, consoleActor: string): ConsoleEval {
+function consoleEval(client: Rdp, consoleActor: string): ConsoleEval {
   return async (expression) => {
     const started = await client.request({ to: consoleActor, type: 'evaluateJSAsync', text: expression }, 'evaluateJS')
     const result = await client.waitFor(
@@ -178,17 +179,8 @@ export async function evalAsync(evaluate: ConsoleEval, expression: string): Prom
   throw new Error(`Promise never settled in the extension: ${expression.slice(0, 80)}`)
 }
 
-/** Install `dist-firefox` as a temporary add-on and open an evaluation channel to its background page. */
-export async function installAddon(client: Rdp, addonPath: string, addonId: string): Promise<ConsoleEval> {
-  const root = await client.request({ to: 'root', type: 'getRoot' })
-
-  await client.request({
-    to: root.addonsActor as string,
-    type: 'installTemporaryAddon',
-    addonPath,
-    openDevTools: false,
-  })
-
+/** Open an evaluation channel to the background page of an installed add-on. */
+export async function attachToBackground(client: Rdp, addonId: string): Promise<ConsoleEval> {
   const { addons } = (await client.request({ to: 'root', type: 'listAddons' })) as {
     addons: Array<{ id: string; actor: string }>
   }
@@ -215,16 +207,6 @@ export async function installAddon(client: Rdp, addonPath: string, addonId: stri
   return consoleEval(client, targetConsoleActor(await background))
 }
 
-/** Wait for an extension page to open and open an evaluation channel to it. */
-export async function waitForExtensionPage(client: Rdp, path: string): Promise<ConsoleEval> {
-  const target = await client.waitFor(
-    (packet) => packet.type === 'target-available-form' && isExtensionPage(packet, path),
-    `extension page ${path}`,
-  )
-
-  return consoleEval(client, targetConsoleActor(target))
-}
-
 function isExtensionPage(packet: Packet, path: string): boolean {
   const target = packet.target as { url?: string; consoleActor?: string } | undefined
 
@@ -243,23 +225,28 @@ const PORT_BASE = 6100
 const PORTS_PER_WORKER = 10
 
 /**
- * Pick a debugger port for one Playwright worker.
+ * Pick ports for one Playwright worker.
  *
- * Firefox has to be told the port up front, so an ephemeral port cannot be reserved and handed over:
- * two workers asking the OS for a free port can be given the same one before either binds it, and
- * the loser then talks RDP to the winner's browser. Each worker searches its own disjoint slot
- * instead, which makes that impossible.
+ * Both the driver and the debugger server have to be told their port up front, so an ephemeral port
+ * cannot be reserved and handed over: two workers asking the OS for a free port can be given the
+ * same one before either binds it, and the loser then drives the winner's browser. Each worker
+ * searches its own disjoint slot instead, which makes that impossible.
  */
-export async function debuggerPort(parallelIndex: number): Promise<number> {
+export async function freePorts(parallelIndex: number, count: number): Promise<number[]> {
   const first = PORT_BASE + parallelIndex * PORTS_PER_WORKER
+  const found: number[] = []
 
-  for (let port = first; port < first + PORTS_PER_WORKER; port++) {
+  for (let port = first; port < first + PORTS_PER_WORKER && found.length < count; port++) {
     if (await isFree(port)) {
-      return port
+      found.push(port)
     }
   }
 
-  throw new Error(`No free debugger port for worker ${parallelIndex} in ${first}-${first + PORTS_PER_WORKER - 1}`)
+  if (found.length < count) {
+    throw new Error(`Only ${found.length} of ${count} ports free for worker ${parallelIndex} from ${first}`)
+  }
+
+  return found
 }
 
 function isFree(port: number): Promise<boolean> {

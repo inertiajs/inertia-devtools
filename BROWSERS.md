@@ -61,21 +61,34 @@ Chrome build inherits.
 
 ## Automated coverage
 
-Chrome carries the e2e suite. Firefox gets one smoke test, `tests/e2e/firefox/smoke.firefox.spec.ts`,
-run as the `firefox` Playwright project: it installs `dist-firefox/`, drives a visit in the app and
-asserts the visit is recorded and rendered as a timeline row.
+Chrome carries the full e2e suite. Firefox runs a subset in `tests/e2e/firefox/`, as the `firefox`
+Playwright project, which covers the plumbing and one scenario per panel area:
 
-It cannot share the Chrome fixtures, because Playwright loads extensions in Chromium only. Instead it
-talks Firefox's Remote Debugging Protocol (`tests/e2e/firefox/rdp.ts`, ~150 lines, the same channel
-`web-ext` uses) to install a temporary add-on, to read background state where Chrome uses
-`serviceWorker.evaluate`, and to read the panel's DOM. That last one is not a shortcut: Playwright
-never attaches to a privileged `moz-extension://` page, not even one the extension opens itself, so
-the panel is opened by the extension and inspected over RDP. The `moz-extension` origin is made
-predictable by seeding `extensions.webextensions.uuids` in the profile, since Firefox otherwise
-assigns a fresh uuid per install.
+```bash
+pnpm test:e2e --project=firefox
+pnpm test:e2e --project=chromium
+```
 
-Everything past "does it record and render" stays manual, so run the checklist below before a
-release.
+Both projects run on Playwright's test runner, but only Chrome runs on Playwright's browser.
+Playwright loads extensions in Chromium only, so the Firefox specs drive geckodriver through
+`selenium-webdriver` (`tests/e2e/firefox/session.ts`) and talk Firefox's Remote Debugging Protocol
+alongside it (`tests/e2e/firefox/rdp.ts`). Each side does what only it can:
+
+- **geckodriver** installs the add-on (`installAddon`, which zips `dist-firefox/` itself, temporary
+  because a permanent install would need a signed build) and drives pages, including the panel.
+- **RDP** stands in for `serviceWorker.evaluate`: Firefox's background page is invisible to
+  geckodriver, so entries, tab ids and extension APIs are read there. It also opens the panel tab.
+
+The panel is reached in a roundabout way for a reason. Neither driver may navigate to a
+`moz-extension://` URL: Playwright hangs, and geckodriver answers
+`UnsupportedOperationError: Navigation … is not allowed in this context`. Opening the tab from
+privileged chrome JS is refused too, since geckodriver rejects `--remote-allow-system-access` as a
+capability. What does work is letting the extension open its own panel tab and switching the driver
+to that window handle, which is also why Playwright cannot do this at all: it never lists the tab.
+
+Firefox-specific behaviour that the Chrome suite cannot speak to lives here too, so run the manual
+checklist below only for what remains: DevTools panel integration itself, theme, and anything needing
+a production build of an app.
 
 ## Manual smoke checklist
 
