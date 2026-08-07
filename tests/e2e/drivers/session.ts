@@ -212,6 +212,40 @@ export abstract class BrowserSession {
     return this.driver.findElements(By.xpath(`//li[@role="option"][contains(., ${xpathLiteral(text)})]`))
   }
 
+  /**
+   * Select the first timeline row whose text contains `text`.
+   *
+   * Rows arrive on a broadcast after the panel has hydrated, so the row is waited for rather than
+   * looked up once.
+   */
+  async selectRow(text: string): Promise<void> {
+    await this.driver.wait(
+      async () => {
+        const [row] = await this.rowsContaining(text)
+
+        if (!row) {
+          return false
+        }
+
+        await row.click()
+
+        return true
+      },
+      15_000,
+      `No timeline row contains "${text}"`,
+    )
+  }
+
+  /** Switch the detail pane to one of its tabs. */
+  async openDetailTab(tab: 'props' | 'http' | 'route' | 'page'): Promise<void> {
+    await this.driver.findElement(By.css(`#detail-tab-${tab}`)).click()
+  }
+
+  /** The detail pane's text alone, so a match can never come from the timeline beside it. */
+  async detailText(): Promise<string> {
+    return await this.driver.findElement(By.css('#detail-tabpanel')).getText()
+  }
+
   searchInput(): Promise<WebElement> {
     return this.driver.findElement(By.css('input[placeholder="Search URL or component…"]'))
   }
