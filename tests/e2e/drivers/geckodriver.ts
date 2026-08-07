@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { createWriteStream } from 'node:fs'
-import { access, mkdir, rm } from 'node:fs/promises'
+import { access, mkdir, rename, rm } from 'node:fs/promises'
 import { arch, platform } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { Readable } from 'node:stream'
@@ -48,6 +48,14 @@ export function geckodriverBinary(): Promise<string> {
   return cached
 }
 
+/**
+ * Fetch the driver into the cache.
+ *
+ * Every Playwright worker is its own process, so memoising inside one is not enough: on a cold cache
+ * they all download at the same moment. Each one therefore works in a private scratch directory and
+ * moves the finished binary into place with a rename, which is atomic, so the losers of the race
+ * simply overwrite an identical file instead of corrupting a shared download.
+ */
 async function download(): Promise<string> {
   const binary = join(CACHE_DIR, `geckodriver-${VERSION}${platform() === 'win32' ? '.exe' : ''}`)
 
@@ -55,28 +63,32 @@ async function download(): Promise<string> {
     return binary
   }
 
-  const archive = `${binary}.tar.gz`
+  const scratch = join(CACHE_DIR, `scratch-${process.pid}`)
+  const archive = join(scratch, 'geckodriver.tar.gz')
   const url = `https://github.com/mozilla/geckodriver/releases/download/v${VERSION}/geckodriver-v${VERSION}-${assetName()}.tar.gz`
 
-  await mkdir(CACHE_DIR, { recursive: true })
+  await mkdir(scratch, { recursive: true })
 
-  const response = await fetch(url)
+  try {
+    const response = await fetch(url)
 
-  if (!response.ok || !response.body) {
-    throw new Error(`Could not download geckodriver ${VERSION} from ${url}: ${response.status}`)
+    if (!response.ok || !response.body) {
+      throw new Error(`Could not download geckodriver ${VERSION} from ${url}: ${response.status}`)
+    }
+
+    await pipeline(Readable.fromWeb(response.body), createWriteStream(archive))
+
+    // The archive holds a single `geckodriver` binary.
+    const extracted = spawnSync('tar', ['-xzf', archive, '-C', scratch], { encoding: 'utf8' })
+
+    if (extracted.status !== 0) {
+      throw new Error(`Could not extract ${archive}: ${extracted.stderr}`)
+    }
+
+    await rename(join(scratch, 'geckodriver'), binary)
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
   }
-
-  await pipeline(Readable.fromWeb(response.body), createWriteStream(archive))
-
-  // The archive holds a single `geckodriver` binary, renamed on extraction so the cache is versioned.
-  const extracted = spawnSync('tar', ['-xzf', archive, '-C', CACHE_DIR], { encoding: 'utf8' })
-
-  if (extracted.status !== 0) {
-    throw new Error(`Could not extract ${archive}: ${extracted.stderr}`)
-  }
-
-  spawnSync('mv', [join(CACHE_DIR, 'geckodriver'), binary])
-  await rm(archive, { force: true })
 
   return binary
 }

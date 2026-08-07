@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { createWriteStream } from 'node:fs'
-import { access, mkdir, rm } from 'node:fs/promises'
+import { access, mkdir, rename, rm } from 'node:fs/promises'
 import { arch, platform } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { Readable } from 'node:stream'
@@ -47,7 +47,12 @@ function platformName(): string {
 
 let cached: Promise<string> | undefined
 
-/** Download the matching chromedriver once per worker, or reuse the one already on disk. */
+/**
+ * Download the matching chromedriver, or reuse the one already on disk.
+ *
+ * Memoised per worker process, and the download itself works in a private scratch directory finished
+ * off by an atomic rename, because on a cold cache every worker starts downloading at once.
+ */
 export function chromedriverBinary(): Promise<string> {
   cached ??= download()
 
@@ -63,29 +68,33 @@ async function download(): Promise<string> {
   }
 
   const target = platformName()
-  const archive = `${binary}.zip`
+  const scratch = join(CACHE_DIR, `scratch-${process.pid}`)
+  const archive = join(scratch, 'chromedriver.zip')
   const url = `https://storage.googleapis.com/chrome-for-testing-public/${version}/${target}/chromedriver-${target}.zip`
 
-  await mkdir(CACHE_DIR, { recursive: true })
+  await mkdir(scratch, { recursive: true })
 
-  const response = await fetch(url)
+  try {
+    const response = await fetch(url)
 
-  if (!response.ok || !response.body) {
-    throw new Error(`Could not download chromedriver ${version} from ${url}: ${response.status}`)
+    if (!response.ok || !response.body) {
+      throw new Error(`Could not download chromedriver ${version} from ${url}: ${response.status}`)
+    }
+
+    await pipeline(Readable.fromWeb(response.body), createWriteStream(archive))
+
+    const extracted = spawnSync('unzip', ['-o', '-j', archive, `chromedriver-${target}/chromedriver`, '-d', scratch], {
+      encoding: 'utf8',
+    })
+
+    if (extracted.status !== 0) {
+      throw new Error(`Could not extract ${archive}: ${extracted.stderr}`)
+    }
+
+    await rename(join(scratch, 'chromedriver'), binary)
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
   }
-
-  await pipeline(Readable.fromWeb(response.body), createWriteStream(archive))
-
-  const extracted = spawnSync('unzip', ['-o', '-j', archive, `chromedriver-${target}/chromedriver`, '-d', CACHE_DIR], {
-    encoding: 'utf8',
-  })
-
-  if (extracted.status !== 0) {
-    throw new Error(`Could not extract ${archive}: ${extracted.stderr}`)
-  }
-
-  spawnSync('mv', [join(CACHE_DIR, 'chromedriver'), binary])
-  await rm(archive, { force: true })
 
   return binary
 }

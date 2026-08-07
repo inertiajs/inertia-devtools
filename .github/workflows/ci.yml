@@ -72,16 +72,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # The original suite, on Playwright's own Chromium: the only browser it can load an
-          # extension into.
-          - project: chromium
-            browser: chromium
-          # The shared suite (tests/e2e/shared), which runs the same specs on both browsers through
-          # WebDriver. Chrome needs Playwright's Chromium as the binary chromedriver launches.
+          # The shared suite (tests/e2e/shared) runs the same specs on both browsers through WebDriver.
+          # Chrome needs Playwright's Chromium as the binary chromedriver launches.
           - project: chromium-selenium
             browser: chromium
           - project: firefox
             browser: firefox
+          # The `chromium` project, the original Playwright suite, is deliberately not here while the
+          # shared suite grows to cover it. Run it locally with `pnpm test:e2e:chrome`.
 
     steps:
       - name: Checkout
