@@ -26,11 +26,13 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   projects: [
-    { name: 'chromium', testIgnore: /firefox\// },
-    // Firefox gets one smoke test rather than the full suite: the add-on has to be installed over
-    // the remote debugging protocol and its pages read the same way, since Playwright loads
-    // extensions in Chromium only. BROWSERS.md carries the manual checklist that covers the rest.
-    { name: 'firefox', testMatch: /firefox\/.*\.spec\.ts$/ },
+    // The original suite: Playwright's own Chromium, which is the only browser it can load an
+    // extension into.
+    { name: 'chromium', testIgnore: /(shared|firefox|chrome-selenium)\// },
+    // One suite, both browsers. The specs in tests/e2e/shared never name a browser: the project
+    // name picks a driver (see tests/e2e/drivers/fixtures.ts), and Playwright is only the runner.
+    { name: 'chromium-selenium', testMatch: /shared\/.*\.spec\.ts$/ },
+    { name: 'firefox', testMatch: /shared\/.*\.spec\.ts$/ },
   ],
   // The extension only captures data when the app runs through the vite dev server: the
   // `inertia()` vite plugin injects the client devtools instrumentation and real source

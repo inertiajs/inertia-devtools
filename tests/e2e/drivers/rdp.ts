@@ -225,15 +225,16 @@ const PORT_BASE = 6100
 const PORTS_PER_WORKER = 10
 
 /**
- * Pick ports for one Playwright worker.
+ * Pick ports for one session.
  *
- * Both the driver and the debugger server have to be told their port up front, so an ephemeral port
- * cannot be reserved and handed over: two workers asking the OS for a free port can be given the
- * same one before either binds it, and the loser then drives the winner's browser. Each worker
- * searches its own disjoint slot instead, which makes that impossible.
+ * A driver and a debugger server have to be told their port up front, so an ephemeral port cannot be
+ * reserved and handed over: two sessions asking the OS for a free port can be given the same one
+ * before either binds it, and the loser then drives the winner's browser. Each session searches its
+ * own disjoint slot instead, which makes that impossible. `slot` has to be unique across everything
+ * running at once, so it counts browser projects as well as workers.
  */
-export async function freePorts(parallelIndex: number, count: number): Promise<number[]> {
-  const first = PORT_BASE + parallelIndex * PORTS_PER_WORKER
+export async function freePorts(slot: number, count: number): Promise<number[]> {
+  const first = PORT_BASE + slot * PORTS_PER_WORKER
   const found: number[] = []
 
   for (let port = first; port < first + PORTS_PER_WORKER && found.length < count; port++) {
@@ -243,7 +244,7 @@ export async function freePorts(parallelIndex: number, count: number): Promise<n
   }
 
   if (found.length < count) {
-    throw new Error(`Only ${found.length} of ${count} ports free for worker ${parallelIndex} from ${first}`)
+    throw new Error(`Only ${found.length} of ${count} ports free for slot ${slot} from ${first}`)
   }
 
   return found
