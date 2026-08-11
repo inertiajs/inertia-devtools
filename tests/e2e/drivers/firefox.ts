@@ -4,8 +4,8 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Builder } from 'selenium-webdriver'
 import { Options } from 'selenium-webdriver/firefox.js'
-import { attachToBackground, type ConsoleEval, evalAsync, freePorts, Rdp } from './rdp'
-import { BrowserSession } from './session'
+import { attachToBackground, type ConsoleEval, evalAsync, freePorts, Rdp, tabConsoleMessages } from './rdp'
+import { APP_URL, BrowserSession } from './session'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const addonPath = resolve(here, '../../../dist-firefox')
@@ -99,6 +99,12 @@ export class FirefoxSession extends BrowserSession {
     }
 
     throw new Error(`The extension page ${path} never opened`)
+  }
+
+  async consoleWarnings(): Promise<string[]> {
+    const messages = await tabConsoleMessages(this.rdp, APP_URL)
+
+    return messages.filter((message) => message.level === 'warn').map((message) => message.text)
   }
 
   async stop(): Promise<void> {

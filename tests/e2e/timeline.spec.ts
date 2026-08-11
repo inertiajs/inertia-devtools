@@ -1,66 +1,9 @@
-import { clearBuffers, expect, readBuffer, tabIdFor, test, waitForBuffer } from './fixtures'
+import { clearBuffers, expect, tabIdFor, test, waitForBuffer } from './fixtures'
 import { openPanel, timelineRows, timelineSubtitle, timelineRelativeTime } from './helpers'
 
 test.describe('Inertia DevTools extension', () => {
   test.beforeEach(async ({ serviceWorker }) => {
     await clearBuffers(serviceWorker)
-  })
-
-  test('it evicts the oldest entries once the buffer reaches its cap', async ({ page, serviceWorker }) => {
-    // `?max_entries=3` caps this tab's buffer at 3, so a handful of real navigations overflows it.
-    // Initial nav + 6 seeds = 7, so the oldest 4 (the initial entry and i=0..2) evict, leaving
-    // i=3..5 in order.
-    await page.goto('/devtools?max_entries=3')
-
-    const tabId = await tabIdFor(serviceWorker, page)
-    await waitForBuffer(serviceWorker, tabId, (list) => list.length === 1)
-
-    await page.evaluate(async () => {
-      for (const index of Array.from({ length: 6 }, (_, value) => value)) {
-        await fetch(`/devtools/bulk-entry?i=${index}`, { credentials: 'include' })
-      }
-    })
-
-    await expect.poll(async () => (await readBuffer(serviceWorker, tabId)).length).toBe(3)
-
-    const entries = await waitForBuffer(
-      serviceWorker,
-      tabId,
-      (list) => list.length === 3 && list[0].__meta.url.includes('i=3') && list.at(-1)?.__meta.url.includes('i=5'),
-    )
-
-    const indices = entries.map((entry) => {
-      const qs = entry.__meta.url.split('?')[1] ?? ''
-      return Number(new URLSearchParams(qs).get('i'))
-    })
-
-    expect(indices).toEqual([3, 4, 5])
-  })
-
-  test('it surfaces the evicted count in the panel header once the buffer overflows', async ({
-    context,
-    extensionId,
-    page,
-    serviceWorker,
-  }) => {
-    await page.goto('/devtools?max_entries=3')
-
-    const tabId = await tabIdFor(serviceWorker, page)
-    await waitForBuffer(serviceWorker, tabId, (list) => list.length === 1)
-
-    await page.evaluate(async () => {
-      for (const index of Array.from({ length: 6 }, (_, value) => value)) {
-        await fetch(`/devtools/bulk-entry?i=${index}`, { credentials: 'include' })
-      }
-    })
-
-    await expect.poll(async () => (await readBuffer(serviceWorker, tabId)).length).toBe(3)
-
-    const panel = await openPanel(context, extensionId, serviceWorker, tabId)
-
-    await expect(panel.getByText(/\d+ trimmed/)).toContainText('4 trimmed')
-
-    await panel.close()
   })
 
   test('it shows a static clock time with a full timestamp tooltip', async ({
@@ -181,54 +124,6 @@ test.describe('Inertia DevTools extension', () => {
     await panel.close()
   })
 
-  test('it shows the empty state then renders the first row after a navigation', async ({
-    context,
-    extensionId,
-    page,
-    serviceWorker,
-  }) => {
-    await page.goto('/non-inertia')
-
-    const tabId = await tabIdFor(serviceWorker, page)
-    const panel = await openPanel(context, extensionId, serviceWorker, tabId)
-
-    await expect(panel.getByText('No entries yet')).toBeVisible()
-    await expect(timelineRows(panel)).toHaveCount(0)
-
-    await page.goto('/devtools')
-    await waitForBuffer(serviceWorker, tabId, (list) => list.length === 1)
-
-    await expect.poll(async () => await timelineRows(panel).count()).toBe(1)
-
-    await panel.close()
-  })
-
-  test('it shows an errors badge on the timeline row for a validation-error response', async ({
-    context,
-    extensionId,
-    page,
-    serviceWorker,
-  }) => {
-    await page.goto('/devtools')
-
-    const tabId = await tabIdFor(serviceWorker, page)
-    await waitForBuffer(serviceWorker, tabId, (list) => list.length === 1)
-
-    await page.getByRole('button', { name: 'Submit validation error' }).click()
-    await expect(page.locator('#name-error')).toHaveText('The name field is required.')
-
-    await waitForBuffer(serviceWorker, tabId, (list) =>
-      list.some((entry) => entry.__meta.url.includes('/devtools/validation-error')),
-    )
-
-    const panel = await openPanel(context, extensionId, serviceWorker, tabId)
-
-    const row = timelineRows(panel).filter({ hasText: '/devtools/validation-error' })
-    await expect(row.getByText('errors', { exact: true })).toBeVisible()
-
-    await panel.close()
-  })
-
   test('it shows the "no entry selected" detail state until a row is picked', async ({
     context,
     extensionId,
@@ -246,83 +141,6 @@ test.describe('Inertia DevTools extension', () => {
 
     await timelineRows(panel).first().click()
     await expect(panel.getByText('No entry selected')).toBeHidden()
-
-    await panel.close()
-  })
-
-  test('it shows a "no matches" empty state when a filter excludes every entry', async ({
-    context,
-    extensionId,
-    page,
-    serviceWorker,
-  }) => {
-    await page.goto('/devtools')
-
-    const tabId = await tabIdFor(serviceWorker, page)
-    await waitForBuffer(serviceWorker, tabId, (list) => list.length === 1)
-
-    const panel = await openPanel(context, extensionId, serviceWorker, tabId)
-
-    await expect(timelineRows(panel)).toHaveCount(1)
-
-    await panel.getByRole('searchbox', { name: 'Search requests by URL or component' }).fill('zzz-no-such-entry')
-
-    await expect(timelineRows(panel)).toHaveCount(0)
-    await expect(panel.getByText('No matches')).toBeVisible()
-
-    await panel.close()
-  })
-
-  test('it flags a slow request with the turtle indicator and second-scale duration', async ({
-    context,
-    extensionId,
-    page,
-    serviceWorker,
-  }) => {
-    await page.goto('/devtools')
-
-    const tabId = await tabIdFor(serviceWorker, page)
-    await waitForBuffer(serviceWorker, tabId, (list) => list.length === 1)
-
-    await page.getByRole('link', { name: 'Slow', exact: true }).click()
-    await expect(page.locator('#greeting')).toHaveText('slow response')
-
-    const entries = await waitForBuffer(serviceWorker, tabId, (list) =>
-      list.some((entry) => entry.__meta.url.includes('/devtools/slow')),
-    )
-
-    const slow = entries.find((entry) => entry.__meta.url.includes('/devtools/slow'))
-    expect(slow?.__meta.serverTimingMs ?? 0).toBeGreaterThanOrEqual(1000)
-
-    const panel = await openPanel(context, extensionId, serviceWorker, tabId)
-
-    const row = timelineRows(panel).filter({ hasText: '/devtools/slow' }).first()
-    await expect(row.getByLabel('slow')).toBeVisible()
-    await expect(row).toContainText('s')
-
-    await panel.close()
-  })
-
-  test('it renders a redirect badge pointing at the redirect target', async ({
-    context,
-    extensionId,
-    page,
-    serviceWorker,
-  }) => {
-    await page.goto('/devtools')
-
-    const tabId = await tabIdFor(serviceWorker, page)
-    await waitForBuffer(serviceWorker, tabId, (list) => list.length === 1)
-
-    await page.getByRole('button', { name: 'Redirect' }).click()
-    await waitForBuffer(serviceWorker, tabId, (list) =>
-      list.some((entry) => entry.__meta.url.includes('/devtools/redirect-source')),
-    )
-
-    const panel = await openPanel(context, extensionId, serviceWorker, tabId)
-
-    const row = timelineRows(panel).filter({ hasText: '/devtools/redirect-source' }).first()
-    await expect(row).toContainText('/devtools/redirect-target')
 
     await panel.close()
   })

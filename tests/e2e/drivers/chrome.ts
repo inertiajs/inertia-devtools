@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Builder } from 'selenium-webdriver'
+import { Builder, logging } from 'selenium-webdriver'
 import { Options } from 'selenium-webdriver/chrome.js'
 import { BrowserSession } from './session'
 
@@ -28,9 +28,15 @@ export class ChromeSession extends BrowserSession {
     super(driver, appHandle)
   }
 
+  private readonly warnings: string[] = []
+
   static async start(): Promise<ChromeSession> {
+    const loggingPrefs = new logging.Preferences()
+    loggingPrefs.setLevel(logging.Type.BROWSER, logging.Level.ALL)
+
     const options = new Options()
       .setBrowserVersion('stable')
+      .setLoggingPrefs(loggingPrefs)
       .addArguments(`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`, '--no-sandbox')
 
     if (process.env.HEADED !== '1') {
@@ -53,6 +59,19 @@ export class ChromeSession extends BrowserSession {
     await this.driver.get(`chrome-extension://${this.extensionId}/${path}`)
 
     return await this.driver.getWindowHandle()
+  }
+
+  /** Reading the log drains it, so what has been read once is kept for the next caller. */
+  async consoleWarnings(): Promise<string[]> {
+    const entries = await this.driver.manage().logs().get(logging.Type.BROWSER)
+
+    for (const entry of entries) {
+      if (entry.level.name === logging.Level.WARNING.name) {
+        this.warnings.push(entry.message)
+      }
+    }
+
+    return this.warnings
   }
 
   async stop(): Promise<void> {

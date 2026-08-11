@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { makeEntry } from '../support'
 
 type SessionRule = { id: number; condition: Record<string, unknown>; action: Record<string, unknown> }
 
@@ -144,5 +145,28 @@ describe('syncAllTabRules', () => {
     const domains = ruleUpdates.flatMap((update) => update.addRules ?? []).map((rule) => rule.condition.requestDomains)
 
     expect(domains).toEqual([['app.test'], ['app.test']])
+  })
+})
+
+describe('removeTabRule', () => {
+  beforeEach(() => stubChrome())
+
+  it('drops the recorded buffer and the origin along with the tab rule', async () => {
+    vi.resetModules()
+
+    const { removeTabRule } = await import('../../src/background/tabRules')
+    const { appendEntry, getEntries, getOrigin, setOrigin } = await import('../../src/background/runtimeStore')
+
+    appendEntry(9, makeEntry({ id: 'gone' }))
+    setOrigin(9, 'http://app.test')
+
+    expect(getEntries(9)).toHaveLength(1)
+    expect(getOrigin(9)).toBe('http://app.test')
+
+    await removeTabRule(9)
+
+    // The origin outlives a panel clear on purpose, so only a tab going away may drop it.
+    expect(getEntries(9)).toHaveLength(0)
+    expect(getOrigin(9)).toBeNull()
   })
 })

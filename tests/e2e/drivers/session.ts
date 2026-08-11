@@ -29,6 +29,14 @@ export abstract class BrowserSession {
 
   abstract stop(): Promise<void>
 
+  /**
+   * Every warning the app tab has logged so far, oldest first.
+   *
+   * The two browsers expose this through nothing in common: chromedriver has a log endpoint,
+   * geckodriver has none at all and the messages come off the debugging protocol instead.
+   */
+  abstract consoleWarnings(): Promise<string[]>
+
   /** What the driver actually connected to, so a spec can prove which browser it ran in. */
   async browser(): Promise<{ name: string; version: string }> {
     const capabilities = await this.driver.getCapabilities()
@@ -119,6 +127,43 @@ export abstract class BrowserSession {
     }
 
     throw new Error('The extension background never answered')
+  }
+
+  /**
+   * Open a second app tab and hand back both handles onto it.
+   *
+   * The tab id comes from diffing the app tabs rather than from matching a URL, since both tabs
+   * share an origin and either could answer a prefix match.
+   */
+  async openExtraApp(path: string): Promise<{ handle: string; tabId: number }> {
+    const before = await this.appTabIds()
+
+    await this.driver.switchTo().newWindow('tab')
+    await this.driver.get(`${APP_URL}${path}`)
+
+    const handle = await this.driver.getWindowHandle()
+    const tabId = (await this.appTabIds()).find((candidate) => !before.includes(candidate))
+
+    if (tabId === undefined) {
+      throw new Error(`No new tab appeared for ${path}`)
+    }
+
+    return { handle, tabId }
+  }
+
+  /** Close a tab and leave the driver back on the first app tab. */
+  async closeTab(handle: string): Promise<void> {
+    await this.driver.switchTo().window(handle)
+    await this.driver.close()
+    await this.backToApp()
+  }
+
+  private async appTabIds(): Promise<number[]> {
+    return await this.fromExtensionPage(
+      `extension.tabs
+         .query({})
+         .then((tabs) => done(tabs.filter((tab) => (tab.url ?? '').startsWith('${APP_URL}')).map((tab) => tab.id)))`,
+    )
   }
 
   /** The tab id the recorder keys every entry on. */

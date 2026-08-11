@@ -207,6 +207,49 @@ export async function attachToBackground(client: Rdp, addonId: string): Promise<
   return consoleEval(client, targetConsoleActor(await background))
 }
 
+type ConsoleMessage = { message: { level: string; arguments: unknown[] } }
+
+/**
+ * Read what a content tab logged to the console, which geckodriver exposes nowhere.
+ *
+ * The tab descriptor is resolved on every call rather than kept: a navigation replaces the window
+ * global and with it the console actor, so a handle taken earlier reads a document that is gone.
+ * `startListeners` has to precede the read, but the cache it then returns reaches back over messages
+ * logged before this client ever attached, so a warning fired at page load is still there.
+ */
+export async function tabConsoleMessages(
+  client: Rdp,
+  urlPrefix: string,
+): Promise<Array<{ level: string; text: string }>> {
+  const { tabs } = (await client.request({ to: 'root', type: 'listTabs' })) as {
+    tabs: Array<{ actor: string; url?: string }>
+  }
+
+  const descriptor = tabs.find((tab) => String(tab.url ?? '').startsWith(urlPrefix))
+
+  if (!descriptor) {
+    throw new Error(`No tab is on ${urlPrefix}: ${tabs.map((tab) => tab.url).join(', ')}`)
+  }
+
+  const target = (await client.request({ to: descriptor.actor, type: 'getTarget' }, 'getTarget')) as {
+    frame: { consoleActor: string }
+  }
+
+  const consoleActor = target.frame.consoleActor
+
+  await client.request({ to: consoleActor, type: 'startListeners', listeners: ['ConsoleAPI'] }, 'startListeners')
+
+  const cached = (await client.request(
+    { to: consoleActor, type: 'getCachedMessages', messageTypes: ['ConsoleAPI'] },
+    'getCachedMessages',
+  )) as { messages: ConsoleMessage[] }
+
+  return cached.messages.map(({ message }) => ({
+    level: message.level,
+    text: message.arguments.map((argument) => String(argument)).join(' '),
+  }))
+}
+
 function isExtensionPage(packet: Packet, path: string): boolean {
   const target = packet.target as { url?: string; consoleActor?: string } | undefined
 

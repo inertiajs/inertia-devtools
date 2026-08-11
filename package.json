@@ -50,6 +50,8 @@
     "@types/node": "^24.10.13",
     "@types/selenium-webdriver": "^4.35.6",
     "@vitejs/plugin-vue": "^6.0.0",
+    "@vue/test-utils": "^2.4.11",
+    "happy-dom": "^20.11.2",
     "oxfmt": "^0.51.0",
     "oxlint": "^1.66.0",
     "selenium-webdriver": "^4.46.0",

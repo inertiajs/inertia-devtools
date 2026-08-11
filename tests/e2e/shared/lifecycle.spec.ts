@@ -102,3 +102,24 @@ test('it decodes percent-encoded characters in recorded urls', async ({ session 
   expect(text).toContain('tags=alpha,beta')
   expect(text).not.toContain('%2C')
 })
+
+test('it keeps buffers apart per tab and drops one when its tab goes away', async ({ session }) => {
+  await session.openApp('/devtools')
+
+  const tabId = await session.appTabId()
+  await session.waitForEntries(tabId, (list) => list.length === 1)
+
+  const extra = await session.openExtraApp('/devtools/navigate')
+
+  await session.waitForEntries(extra.tabId, (list) =>
+    list.some((entry) => entry.__meta.url.includes('/devtools/navigate')),
+  )
+
+  expect((await session.entries(tabId)).some((entry) => entry.__meta.component === 'Devtools/Navigate')).toBe(false)
+
+  await session.closeTab(extra.handle)
+
+  // Only the closed tab's buffer goes: the surviving tab has to keep everything it recorded.
+  await expect.poll(async () => (await session.entries(extra.tabId)).length).toBe(0)
+  expect(await session.entries(tabId)).not.toHaveLength(0)
+})

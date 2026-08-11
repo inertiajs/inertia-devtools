@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { findPrefetchForRequest } from '../../src/background/prefetchMatch'
 import { getEntries } from '../../src/background/runtimeStore'
 import type { Entry } from '../../src/types'
-import { makeEntry } from './support'
+import { makeEntry } from '../support'
 
 vi.mock('../../src/background/runtimeStore', () => ({
   getEntries: vi.fn(),

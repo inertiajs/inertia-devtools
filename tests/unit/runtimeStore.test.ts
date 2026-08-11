@@ -15,7 +15,7 @@ import {
 } from '../../src/background/runtimeStore'
 import { ENTRY_BUFFER_LIMIT } from '../../src/constants'
 import type { PageStateSnapshot } from '../../src/types'
-import { makeEntry } from './support'
+import { makeEntry } from '../support'
 
 vi.stubGlobal('chrome', {
   runtime: { sendMessage: () => Promise.resolve() },

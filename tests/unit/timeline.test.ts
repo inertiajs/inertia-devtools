@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { groupTimelineEntries } from '../../src/panel/lib/timeline'
-import { makeEntry } from './support'
+import { makeEntry } from '../support'
 
 describe('groupTimelineEntries', () => {
   it('groups entries sharing a batchId under the root that owns the batch', () => {
