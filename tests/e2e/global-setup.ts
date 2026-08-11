@@ -14,13 +14,23 @@ function run(command: string, args: string[], cwd: string): void {
   }
 }
 
+/**
+ * Build the bundles the drivers load as an extension, one per browser project.
+ *
+ * Locally this always rebuilds: a build takes about a second, and the alternative is a run that
+ * quietly tests whatever was in `dist-` last time, which reads as the change under test having no
+ * effect. CI is the opposite case, where both browser jobs download one prebuilt pair so they are
+ * provably testing the same bytes, so there the build only fills in what the download did not.
+ */
 export default async () => {
-  // Build the bundles the fixtures load as an extension, one per browser project.
-  if (!existsSync(resolve(here, '../../dist-chrome/manifest.json'))) {
+  const missing = (target: string): boolean => !existsSync(resolve(repoRoot, `dist-${target}/manifest.json`))
+  const reuseExistingBuild = !!process.env.CI
+
+  if (!reuseExistingBuild || missing('chrome')) {
     run('pnpm', ['build:chrome'], repoRoot)
   }
 
-  if (!existsSync(resolve(here, '../../dist-firefox/manifest.json'))) {
+  if (!reuseExistingBuild || missing('firefox')) {
     run('pnpm', ['build:firefox'], repoRoot)
   }
 }

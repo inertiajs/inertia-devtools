@@ -48,10 +48,18 @@ export class ChromeSession extends BrowserSession {
     // resolves a chromedriver matching this binary, caches it, and the bindings start it.
     const driver = await new Builder().forBrowser('chrome').setChromeOptions(options).build()
 
-    const session = new ChromeSession(driver, await driver.getWindowHandle())
-    await session.waitForBackground()
+    // Past this point the browser exists, and the fixture only reaches `stop()` for a session that
+    // was returned, so anything that throws here has to take the browser down with it.
+    try {
+      const session = new ChromeSession(driver, await driver.getWindowHandle())
+      await session.waitForBackground()
 
-    return session
+      return session
+    } catch (error) {
+      await driver.quit().catch(() => {})
+
+      throw error
+    }
   }
 
   protected async openExtensionPage(path: string): Promise<string> {

@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -22,6 +22,7 @@ export class FirefoxSession extends BrowserSession {
     appHandle: string,
     readonly rdp: Rdp,
     readonly background: ConsoleEval,
+    private readonly profileDir: string,
   ) {
     super(driver, appHandle)
   }
@@ -51,17 +52,31 @@ export class FirefoxSession extends BrowserSession {
 
     const driver = await new Builder().forBrowser('firefox').setFirefoxOptions(options).build()
 
-    // A directory is zipped by the driver, so the build needs no packaging step. Temporary, because a
-    // permanent install would demand a signed add-on.
-    await driver.installAddon(addonPath, true)
+    // Everything below can fail with the browser already up, and the fixture only reaches `stop()`
+    // for a session that was returned. Firefox has the most ways to get here: the add-on install, the
+    // debugger connection and the background attach all happen after launch.
+    let client: Rdp | null = null
 
-    const client = await Rdp.connect(debuggerPort)
-    const background = await attachToBackground(client, ADDON_ID)
+    try {
+      // A directory is zipped by the driver, so the build needs no packaging step. Temporary, because
+      // a permanent install would demand a signed add-on.
+      await driver.installAddon(addonPath, true)
 
-    const session = new FirefoxSession(driver, await driver.getWindowHandle(), client, background)
-    await session.waitForBackground()
+      client = await Rdp.connect(debuggerPort)
 
-    return session
+      const background = await attachToBackground(client, ADDON_ID)
+      const session = new FirefoxSession(driver, await driver.getWindowHandle(), client, background, profileDir)
+
+      await session.waitForBackground()
+
+      return session
+    } catch (error) {
+      client?.close()
+      await driver.quit().catch(() => {})
+      await rm(profileDir, { recursive: true, force: true }).catch(() => {})
+
+      throw error
+    }
   }
 
   /**
@@ -110,5 +125,6 @@ export class FirefoxSession extends BrowserSession {
   async stop(): Promise<void> {
     this.rdp.close()
     await this.driver.quit()
+    await rm(this.profileDir, { recursive: true, force: true }).catch(() => {})
   }
 }

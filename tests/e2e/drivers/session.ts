@@ -123,21 +123,29 @@ export abstract class BrowserSession {
     const current = await this.driver.getWindowHandle()
     const host = (reusePanel ? this.panelHandle : null) ?? (await this.openExtensionPage('popup/popup.html'))
 
-    await this.driver.switchTo().window(host)
+    try {
+      await this.driver.switchTo().window(host)
 
-    const result = (await this.driver.executeAsyncScript(
-      `const done = arguments[arguments.length - 1]
-       const extension = globalThis.browser ?? globalThis.chrome
-       ${body}`,
-    )) as T
+      return (await this.driver.executeAsyncScript(
+        `const done = arguments[arguments.length - 1]
+         const extension = globalThis.browser ?? globalThis.chrome
+         ${body}`,
+      )) as T
+    } finally {
+      // A throw above must not strand the throwaway tab or leave the driver pointing at it, and
+      // `waitForBackground` retries this every 100ms, so one broken extension page would otherwise
+      // bury the browser in popups. Cleanup failures are dropped rather than allowed to mask the
+      // failure that brought us here.
+      try {
+        if (host !== this.panelHandle) {
+          await this.driver.close()
+        }
 
-    if (host !== this.panelHandle) {
-      await this.driver.close()
+        await this.driver.switchTo().window(current === host ? this.appHandle : current)
+      } catch {
+        // The window is already gone, which is the state this was trying to reach.
+      }
     }
-
-    await this.driver.switchTo().window(current === host ? this.appHandle : current)
-
-    return result
   }
 
   /**
