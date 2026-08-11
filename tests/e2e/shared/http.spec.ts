@@ -14,12 +14,41 @@ test('it renders request and response detail in the HTTP tab', async ({ session 
 
   const tabId = await session.appTabId()
 
-  await session.waitForEntries(
+  const entries = await session.waitForEntries(
     tabId,
     (list) =>
       list.some((entry) => entry.__meta.component === 'Devtools/Navigate') &&
       list.some((entry) => entry.__meta.component === 'Devtools/PostRenderResult'),
   )
+
+  const navigate = entries.find((entry) => entry.__meta.component === 'Devtools/Navigate')!
+  const postRender = entries.find((entry) => entry.__meta.component === 'Devtools/PostRenderResult')!
+
+  // The recorded bodies, not just what the panel renders: `Entry` mirrors the adapter's
+  // `IncomingEntry::toArray()` and nothing else in the suite pins that shape, so a recorder that
+  // stopped sending most of a body would still paint enough text for the panel assertions below.
+  expect(navigate.http.responseBody).toMatchObject({
+    status: 'present',
+    value: {
+      component: 'Devtools/Navigate',
+      props: { user: { name: 'John', email: 'john@example.com' } },
+      url: '/devtools/navigate',
+    },
+  })
+  expect(navigate.http.responseBody).toHaveProperty('value.version')
+  expect(navigate.http.requestBody).toMatchObject({ status: 'empty' })
+
+  expect(postRender.http.requestBody).toMatchObject({
+    status: 'present',
+    value: { report: 'quarterly', user: { name: 'John', email: 'john@example.com' } },
+  })
+  expect(postRender.http.responseBody).toMatchObject({
+    status: 'present',
+    value: {
+      component: 'Devtools/PostRenderResult',
+      props: { report: 'quarterly', user: { name: 'John', email: 'john@example.com' } },
+    },
+  })
 
   await session.openPanel(tabId)
 

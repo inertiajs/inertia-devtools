@@ -16,12 +16,20 @@ test('it renders route metadata in the Route tab', async ({ session }) => {
 
   const tabId = await session.appTabId()
 
-  await session.waitForEntries(
+  const entries = await session.waitForEntries(
     tabId,
     (list) =>
       list.some((entry) => entry.__meta.component === 'Devtools/Navigate') &&
       list.some((entry) => entry.__meta.url.includes('/devtools/redirect-source')),
   )
+
+  const redirect = entries.find((entry) => entry.__meta.url.includes('/devtools/redirect-source'))!
+
+  // The route on the entry, not only the action the panel paints: a broken uri renders nothing and
+  // would otherwise pass on the action alone.
+  expect(redirect.__meta.requestType).toBe('navigate')
+  expect(redirect.route.uri).toBe('/devtools/redirect-source')
+  expect(redirect.route.action).toBe(REDIRECT_ACTION)
 
   await session.openPanel(tabId)
 

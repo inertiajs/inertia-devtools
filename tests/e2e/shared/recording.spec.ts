@@ -6,7 +6,7 @@ test('it groups a partial reload under the visit that rendered the page', async 
 
   const tabId = await session.appTabId()
 
-  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+  await session.waitForDevActive(tabId)
 
   await session.driver.findElement(By.linkText('Partial')).click()
   await session.driver.wait(until.elementLocated(By.css('#summary-total')), 10_000)
@@ -35,7 +35,7 @@ test('it chains a deferred load under its parent and keeps each page snapshot on
 
   const tabId = await session.appTabId()
 
-  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+  await session.waitForDevActive(tabId)
 
   await session.driver.findElement(By.linkText('Deferred')).click()
   await session.driver.wait(until.elementLocated(By.css('#lazy-value')), 10_000)
@@ -78,7 +78,7 @@ test('it records a prefetch, stamps it consumed, and chains the deferred load th
 
   const tabId = await session.appTabId()
 
-  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+  await session.waitForDevActive(tabId)
 
   await session.hover(await session.driver.findElement(By.linkText('Prefetch')))
 
@@ -123,7 +123,7 @@ test('it records a redirect and its target as separate roots, with a page only o
 
   const tabId = await session.appTabId()
 
-  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+  await session.waitForDevActive(tabId)
 
   await session.driver.findElement(By.xpath('//button[normalize-space()="Redirect"]')).click()
   await session.driver.wait(until.elementLocated(By.css('#from')), 10_000)
@@ -160,7 +160,7 @@ test('it synthesises entries for client-side visits', async ({ session }) => {
 
   const tabId = await session.appTabId()
 
-  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+  await session.waitForDevActive(tabId)
 
   await session.driver.findElement(By.xpath('//button[normalize-space()="Client push"]')).click()
 
@@ -198,7 +198,7 @@ test('it groups a state-preserving reload but keeps repeat visits to the same ur
 
   const tabId = await session.appTabId()
 
-  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+  await session.waitForDevActive(tabId)
 
   const [root] = await session.waitForEntries(tabId, (list) => list.length === 1)
 
@@ -227,7 +227,7 @@ test('it keeps every deferred group snapshot on the request that resolved it', a
 
   const tabId = await session.appTabId()
 
-  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+  await session.waitForDevActive(tabId)
 
   await session.driver.findElement(By.linkText('Deferred groups')).click()
   await session.driver.wait(until.elementLocated(By.css('#slow-total')), 10_000)
@@ -285,7 +285,7 @@ test('it stamps a tab uuid on a recorded entry and never the tab id', async ({ s
 
   const tabId = await session.appTabId()
 
-  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+  await session.waitForDevActive(tabId)
 
   // Asserted on an Inertia visit rather than the first load: the tab header is injected on
   // sub-requests, so the top-level navigation that opened the page can land without one.
@@ -324,7 +324,7 @@ test('it does not reparent unrelated traffic to a pending prefetch', async ({ se
 
   const tabId = await session.appTabId()
 
-  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+  await session.waitForDevActive(tabId)
 
   await session.hover(await session.driver.findElement(By.linkText('Prefetch')))
   await session.waitForEntries(tabId, (list) =>
@@ -402,7 +402,7 @@ test('it keeps an index partial in the index batch and jumps from the cache-hit 
 
   const tabId = await session.appTabId()
 
-  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+  await session.waitForDevActive(tabId)
   await session.waitForEntries(tabId, (list) => list.length === 1)
 
   // A partial reload of the index stands in for an infinite-scroll fetch: it shares the index page's
@@ -474,7 +474,7 @@ test('it does not synthesise client visits for post-success history writes durin
 
   const tabId = await session.appTabId()
 
-  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+  await session.waitForDevActive(tabId)
   await session.waitForEntries(tabId, (list) => list.length === 1)
 
   await session.driver.findElement(By.linkText('Partial')).click()
@@ -525,7 +525,7 @@ test('it forwards the parent-out header as the parent of the next partial visit'
 
   const tabId = await session.appTabId()
 
-  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+  await session.waitForDevActive(tabId)
 
   const [initial] = await session.waitForEntries(tabId, (list) => list.length === 1)
 

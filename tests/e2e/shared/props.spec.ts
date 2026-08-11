@@ -60,7 +60,7 @@ test('it flags a rescued deferred prop and a reset partial', async ({ session })
 
   const tabId = await session.appTabId()
 
-  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+  await session.waitForDevActive(tabId)
 
   // No wait on the page: a rescued prop is the one the server could not resolve, so the component
   // never leaves its fallback and only the entry proves the deferred load happened at all.
@@ -96,7 +96,7 @@ test('it labels a deferred prop with its group and expands every prop from the t
 
   const tabId = await session.appTabId()
 
-  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+  await session.waitForDevActive(tabId)
 
   await session.driver.findElement(By.linkText('Deferred')).click()
   await session.driver.wait(until.elementLocated(By.css('#lazy-value')), 10_000)

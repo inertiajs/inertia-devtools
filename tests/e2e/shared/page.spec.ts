@@ -7,10 +7,7 @@ test('it renders the client page object in the Page tab', async ({ session }) =>
 
   const tabId = await session.appTabId()
 
-  // A page snapshot is posted by page-world.js, so it exists only once that script has run in the
-  // page's own realm. Waiting for the dev status it reports is what makes the navigation below
-  // deterministic: an `inertia:success` fired before it runs is never recorded.
-  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+  await session.waitForDevActive(tabId)
 
   await session.driver.findElement(By.linkText('Navigate')).click()
   await session.driver.wait(until.elementLocated(By.css('#user-name')), 10_000)
@@ -51,7 +48,7 @@ test('it shows server flash carried by the response on the Page tab', async ({ s
 
   const tabId = await session.appTabId()
 
-  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+  await session.waitForDevActive(tabId)
 
   await session.driver.findElement(By.xpath('//button[normalize-space()="Server flash"]')).click()
 
@@ -72,7 +69,7 @@ test('it updates the Page tab of the current page when a client-side flash fires
 
   const tabId = await session.appTabId()
 
-  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+  await session.waitForDevActive(tabId)
   await session.waitForEntries(tabId, (list) => list.length === 1)
   await session.openPanel(tabId)
 
@@ -97,7 +94,7 @@ test('it pairs a page snapshot with the synthesised client-visit entry', async (
 
   const tabId = await session.appTabId()
 
-  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+  await session.waitForDevActive(tabId)
 
   await session.driver.findElement(By.xpath('//button[normalize-space()="Client push"]')).click()
 
@@ -116,7 +113,7 @@ test('it captures the page snapshot for a validation-error response that still c
 
   const tabId = await session.appTabId()
 
-  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+  await session.waitForDevActive(tabId)
 
   await session.driver.findElement(By.xpath('//button[normalize-space()="Submit validation error"]')).click()
   await session.driver.wait(

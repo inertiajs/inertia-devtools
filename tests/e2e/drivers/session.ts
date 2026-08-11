@@ -53,15 +53,52 @@ export abstract class BrowserSession {
     await this.driver.switchTo().window(this.appHandle)
   }
 
-  /** Run a script in the app tab: the stand-in for Playwright's `page.evaluate`. */
+  /**
+   * Run a script in the app tab: the stand-in for Playwright's `page.evaluate`.
+   *
+   * A page-side rejection has to come back as a rejection here too. Resolving it as a value would
+   * leave a caller that ignores the result unable to tell a script that threw from one that worked,
+   * which quietly turns every test asserting that something did *not* happen into a test that passes
+   * because nothing happened at all.
+   */
   async inApp<T>(script: string, ...args: unknown[]): Promise<T> {
     await this.backToApp()
 
-    return (await this.driver.executeAsyncScript(
+    const outcome = (await this.driver.executeAsyncScript(
       `const done = arguments[arguments.length - 1]
-       Promise.resolve((async () => { ${script} })()).then(done, (error) => done('ERROR: ' + error))`,
+       Promise.resolve((async () => { ${script} })()).then(
+         (value) => done({ ok: true, value: value ?? null }),
+         (error) => done({ ok: false, error: String(error) }),
+       )`,
       ...args,
-    )) as T
+    )) as { ok: true; value: T } | { ok: false; error: string }
+
+    if (!outcome.ok) {
+      throw new Error(`The script threw in the app tab: ${outcome.error}`)
+    }
+
+    return outcome.value
+  }
+
+  /**
+   * Wait until `page-world.js` has registered its interceptors in the page's own realm.
+   *
+   * Anything that depends on that instrumentation (lineage, batch ids, page-state snapshots,
+   * synthesised client visits) is only deterministic after this: a request issued before the
+   * interceptors exist never carries a visitId, and no amount of waiting afterwards adds one.
+   */
+  async waitForDevActive(tabId: number, timeout = 15_000): Promise<void> {
+    const deadline = Date.now() + timeout
+
+    while (Date.now() < deadline) {
+      if (await this.devActive(tabId)) {
+        return
+      }
+
+      await new Promise((wait) => setTimeout(wait, 100))
+    }
+
+    throw new Error(`The page world never reported dev mode active for tab ${tabId}`)
   }
 
   /**

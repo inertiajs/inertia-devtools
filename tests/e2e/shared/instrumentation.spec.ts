@@ -6,11 +6,7 @@ test('it stamps lineage from the page world, not only from response headers', as
 
   const tabId = await session.appTabId()
 
-  // `devActive` arrives as a message from page-world.js, so it only turns true once that script has
-  // run in the page's own realm. Waiting for it before navigating is what makes the stamp below
-  // deterministic: a request issued before the interceptors are registered never carries a visitId,
-  // and no amount of waiting afterwards adds one.
-  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+  await session.waitForDevActive(tabId)
 
   await session.driver.findElement(By.linkText('Navigate')).click()
   await session.driver.wait(until.elementLocated(By.css('#user-name')), 10_000)
@@ -53,7 +49,7 @@ test('it never warns about a missing registry on a page that boots normally', as
 
   // A recorded entry proves the registry attached, so the warning can no longer fire. Waiting on
   // that beats sleeping out the whole grace window.
-  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+  await session.waitForDevActive(tabId)
   await session.waitForEntries(tabId, (list) => list.length === 1)
 
   expect((await session.consoleWarnings()).filter((warning) => warning.includes(NEVER_APPEARED))).toHaveLength(0)
