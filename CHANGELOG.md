@@ -1,6 +1,15 @@
 # Release Notes
 
-## [Unreleased](https://github.com/inertiajs/inertia-devtools/compare/v0.6.5...master)
+## [Unreleased](https://github.com/inertiajs/inertia-devtools/compare/v0.7.0...master)
+
+## [v0.7.0](https://github.com/inertiajs/inertia-devtools/compare/v0.6.5...v0.7.0) - 2026-08-11
+
+### What's Changed
+
+* Support apps served from a subdirectory by [@pascalbaljet](https://github.com/pascalbaljet) in https://github.com/inertiajs/inertia-devtools/pull/8
+* CI improvements by [@pascalbaljet](https://github.com/pascalbaljet) in https://github.com/inertiajs/inertia-devtools/pull/13
+
+**Full Changelog**: https://github.com/inertiajs/inertia-devtools/compare/v0.6.5...v0.7.0
 
 ## [v0.6.5](https://github.com/inertiajs/inertia-devtools/compare/v0.6.4...v0.6.5) - 2026-07-30
 
