@@ -108,3 +108,65 @@ test('it renders a redirect badge pointing at the redirect target', async ({ ses
   const [row] = await session.rowsContaining('/devtools/redirect-source')
   expect(await row.getText()).toContain('/devtools/redirect-target')
 })
+
+test('it flags a slow request and empties out when a search matches nothing', async ({ session }) => {
+  await session.openApp('/devtools')
+
+  const tabId = await session.appTabId()
+  await session.waitForEntries(tabId, (list) => list.length === 1)
+
+  await session.driver.findElement(By.linkText('Slow')).click()
+
+  // Located by text rather than waited on as an element: the visit re-renders the page, and an
+  // element handle taken before that swap is stale by the time the wait reads it.
+  await session.driver.wait(
+    until.elementLocated(By.xpath('//p[@id="greeting"][normalize-space()="slow response"]')),
+    10_000,
+  )
+
+  const entries = await session.waitForEntries(tabId, (list) =>
+    list.some((entry) => entry.__meta.url.includes('/devtools/slow')),
+  )
+
+  const slow = entries.find((entry) => entry.__meta.url.includes('/devtools/slow'))!
+
+  expect(slow.__meta.serverTimingMs ?? 0).toBeGreaterThanOrEqual(1000)
+
+  await session.openPanel(tabId)
+
+  // Located in one call rather than off a held row handle: rows are re-rendered as entries stream
+  // in, and an element found a moment earlier is stale by the time it is asked anything.
+  const turtle = By.xpath('//li[@role="option"][contains(., "/devtools/slow")]//*[@aria-label="slow"]')
+
+  await expect.poll(async () => (await session.driver.findElements(turtle)).length).toBe(1)
+
+  await (await session.searchInput()).sendKeys('zzz-no-such-entry')
+
+  await expect.poll(async () => (await session.timelineRows()).length).toBe(0)
+  expect(await session.panelText()).toContain('No matches')
+})
+
+test('it badges a row whose response carried validation errors', async ({ session }) => {
+  await session.openApp('/devtools')
+
+  const tabId = await session.appTabId()
+  await session.waitForEntries(tabId, (list) => list.length === 1)
+
+  await session.driver.findElement(By.xpath('//button[normalize-space()="Submit validation error"]')).click()
+  await session.driver.wait(
+    until.elementLocated(By.xpath('//p[@id="name-error"][normalize-space()="The name field is required."]')),
+    10_000,
+  )
+
+  await session.waitForEntries(tabId, (list) =>
+    list.some((entry) => entry.__meta.url.includes('/devtools/validation-error')),
+  )
+
+  await session.openPanel(tabId)
+
+  await expect.poll(async () => (await session.rowsContaining('/devtools/validation-error')).length).toBe(1)
+
+  const [row] = await session.rowsContaining('/devtools/validation-error')
+
+  expect(await row.getText()).toContain('errors')
+})

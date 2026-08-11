@@ -83,6 +83,15 @@ export class FirefoxSession extends BrowserSession {
       if (fresh) {
         await this.driver.switchTo().window(fresh)
 
+        // The handle exists before the page behind it does, and the blank tab underneath carries no
+        // extension APIs, so anything evaluated too early fails on an undefined `browser`.
+        await this.driver.wait(
+          async () =>
+            await this.driver.executeScript<boolean>('return typeof browser !== "undefined"').catch(() => false),
+          10_000,
+          `The extension page ${path} never exposed its APIs`,
+        )
+
         return fresh
       }
 

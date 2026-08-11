@@ -1,6 +1,6 @@
 import { By, Key, until, type WebDriver, type WebElement } from 'selenium-webdriver'
 import { Select } from 'selenium-webdriver/lib/select.js'
-import type { Entry } from '../../../src/types'
+import type { Entry, PageStateSnapshot } from '../../../src/types'
 
 export const APP_URL = 'http://127.0.0.1:13337'
 
@@ -57,6 +57,16 @@ export abstract class BrowserSession {
   }
 
   /**
+   * Move the pointer onto an element: the stand-in for Playwright's `locator.hover()`.
+   *
+   * The only way to arm a `prefetch` link, since Inertia starts one off `mouseenter` and a click
+   * never fires that on its own.
+   */
+  async hover(element: WebElement): Promise<void> {
+    await this.driver.actions().move({ origin: element }).perform()
+  }
+
+  /**
    * Evaluate in an extension page, where the extension APIs live.
    *
    * This is what replaces `serviceWorker.evaluate`. It reaches the same state through the messages
@@ -64,9 +74,9 @@ export abstract class BrowserSession {
    * and needs neither CDP nor RDP. The open panel hosts the call when there is one, so no extra tab
    * appears in the middle of a test.
    */
-  protected async fromExtensionPage<T>(body: string): Promise<T> {
+  protected async fromExtensionPage<T>(body: string, { reusePanel = true } = {}): Promise<T> {
     const current = await this.driver.getWindowHandle()
-    const host = this.panelHandle ?? (await this.openExtensionPage('popup/popup.html'))
+    const host = (reusePanel ? this.panelHandle : null) ?? (await this.openExtensionPage('popup/popup.html'))
 
     await this.driver.switchTo().window(host)
 
@@ -144,16 +154,37 @@ export abstract class BrowserSession {
     return (await this.hydrate(tabId)).devActive
   }
 
-  async pageStates(tabId: number): Promise<unknown[]> {
-    const { pageStates } = await this.fromExtensionPage<{ pageStates: unknown[] }>(
+  async pageStates(tabId: number): Promise<Record<string, PageStateSnapshot>> {
+    const { pageStates } = await this.fromExtensionPage<{ pageStates: Record<string, PageStateSnapshot> }>(
       `extension.runtime.sendMessage({ type: 'panel:hydrate-page-state', tabId: ${tabId} }).then(done)`,
     )
 
     return pageStates
   }
 
+  /**
+   * Broadcast an entry to the panel as though the background had just recorded it.
+   *
+   * Never hosted by the panel: `runtime.sendMessage` skips its own sender, so a panel that posted
+   * this would be the one context that never heard it.
+   */
+  async appendEntry(tabId: number, entry: Entry): Promise<void> {
+    await this.fromExtensionPage(
+      `extension.runtime
+         .sendMessage({ type: 'entry:appended', tabId: ${tabId}, entry: ${JSON.stringify(entry)} })
+         .catch(() => {})
+         .then(() => done())`,
+      { reusePanel: false },
+    )
+  }
+
   async clearEntries(tabId: number): Promise<void> {
     await this.fromExtensionPage(`extension.runtime.sendMessage({ type: 'panel:clear', tabId: ${tabId} }).then(done)`)
+  }
+
+  /** Read raw `storage.local` keys, which is where the panel persists what a reload has to survive. */
+  async storedValues(keys: string[]): Promise<Record<string, unknown>> {
+    return await this.fromExtensionPage(`extension.storage.local.get(${JSON.stringify(keys)}).then(done)`)
   }
 
   async storedTabUuid(tabId: number): Promise<string | null> {
@@ -190,6 +221,13 @@ export abstract class BrowserSession {
     }
 
     await this.driver.switchTo().window(this.panelHandle)
+  }
+
+  /** Reload the panel in place, which is how anything it persisted is proved to outlive it. */
+  async reloadPanel(): Promise<void> {
+    await this.toPanel()
+    await this.driver.navigate().refresh()
+    await this.driver.wait(until.elementLocated(By.css('#app')), 10_000)
   }
 
   async closePanel(): Promise<void> {
@@ -268,6 +306,13 @@ export abstract class BrowserSession {
     const selects = await this.driver.findElements(By.css('select'))
 
     await new Select(selects[index]).selectByValue(value)
+  }
+
+  /** Point the panel's file links at an editor, or at none when `value` is `off`. */
+  async selectEditor(value: string): Promise<void> {
+    const picker = this.driver.findElement(By.css('select[aria-label="Editor for file links"]'))
+
+    await new Select(picker).selectByValue(value)
   }
 
   async panelText(): Promise<string> {

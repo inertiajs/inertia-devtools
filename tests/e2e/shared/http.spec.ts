@@ -1,0 +1,85 @@
+import { By, until } from 'selenium-webdriver'
+import { expect, test } from '../drivers/fixtures'
+
+test('it renders request and response detail in the HTTP tab', async ({ session }) => {
+  await session.openApp('/devtools')
+  await session.driver.findElement(By.linkText('Navigate')).click()
+  await session.driver.wait(until.elementLocated(By.css('#user-name')), 10_000)
+
+  await session.driver.findElement(By.linkText('Back')).click()
+  await session.driver.wait(until.elementLocated(By.css('#greeting')), 10_000)
+
+  await session.driver.findElement(By.xpath('//button[normalize-space()="Submit post render"]')).click()
+  await session.driver.wait(until.elementLocated(By.css('#report')), 10_000)
+
+  const tabId = await session.appTabId()
+
+  await session.waitForEntries(
+    tabId,
+    (list) =>
+      list.some((entry) => entry.__meta.component === 'Devtools/Navigate') &&
+      list.some((entry) => entry.__meta.component === 'Devtools/PostRenderResult'),
+  )
+
+  await session.openPanel(tabId)
+
+  await session.selectRow('Devtools/Navigate')
+  await session.openDetailTab('http')
+
+  await expect.poll(async () => await session.detailText()).toContain('RESPONSE BODY')
+
+  const getDetail = await session.detailText()
+
+  expect(getDetail).toContain('REQUEST HEADERS')
+  expect(getDetail).toContain('x-inertia')
+  expect(getDetail).toContain('x-inertia-devtools-id')
+  expect(getDetail).toContain('"Devtools/Navigate"')
+  expect(getDetail).not.toContain('REQUEST BODY')
+
+  await session.selectRow('Devtools/PostRenderResult')
+  await session.openDetailTab('http')
+
+  await expect.poll(async () => await session.detailText()).toContain('REQUEST BODY')
+
+  const postDetail = await session.detailText()
+
+  expect(postDetail).toContain('"quarterly"')
+  expect(postDetail).toContain('"Devtools/PostRenderResult"')
+})
+
+test('it captures a non-Inertia JSON response and expands its body from the section toggle', async ({ session }) => {
+  await session.openApp('/devtools')
+
+  const tabId = await session.appTabId()
+  await session.waitForEntries(tabId, (list) => list.length === 1)
+
+  await session.driver.findElement(By.xpath('//button[normalize-space()="Fetch JSON"]')).click()
+  await session.driver.wait(until.elementLocated(By.xpath('//p[@id="json-status"][text()="200"]')), 10_000)
+
+  const entries = await session.waitForEntries(tabId, (list) =>
+    list.some((entry) => entry.__meta.url.includes('/devtools/api-json')),
+  )
+
+  const json = entries.find((entry) => entry.__meta.url.includes('/devtools/api-json'))!
+
+  expect(json.http.responseBody).toMatchObject({
+    status: 'present',
+    value: { status: 'ok', tags: ['alpha', 'beta'] },
+  })
+
+  await session.openPanel(tabId)
+
+  await session.selectRow('/devtools/api-json')
+  await session.openDetailTab('http')
+
+  await expect.poll(async () => await session.detailText()).toContain('RESPONSE BODY')
+  expect(await session.detailText()).not.toContain('"alpha"')
+
+  await session.driver.findElement(By.css('#detail-tabpanel button[aria-label="Expand all"]')).click()
+
+  await expect.poll(async () => await session.detailText()).toContain('"alpha"')
+
+  await session.driver.findElement(By.css('#detail-tabpanel button[aria-label="Collapse all"]')).click()
+
+  await expect.poll(async () => await session.detailText()).not.toContain('"alpha"')
+})
