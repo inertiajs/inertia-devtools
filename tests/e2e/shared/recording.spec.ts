@@ -318,3 +318,228 @@ test('it renders the recorder id tag into the document and records that same ent
   expect(tag).toBeTruthy()
   expect(JSON.parse(tag as string)).toBe(entries[0].__meta.id)
 })
+
+test('it does not reparent unrelated traffic to a pending prefetch', async ({ session }) => {
+  await session.openApp('/devtools')
+
+  const tabId = await session.appTabId()
+
+  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+
+  await session.hover(await session.driver.findElement(By.linkText('Prefetch')))
+  await session.waitForEntries(tabId, (list) =>
+    list.some(
+      (entry) => entry.__meta.component === 'Devtools/PrefetchTarget' && entry.__meta.requestType === 'prefetch',
+    ),
+  )
+
+  await session.driver.findElement(By.xpath('//button[normalize-space()="Reload greeting"]')).click()
+
+  const entries = await session.waitForEntries(tabId, (list) =>
+    list.some((entry) => entry.__meta.component === 'Devtools/Index' && entry.__meta.requestType === 'partial'),
+  )
+
+  const partial = entries.find(
+    (entry) => entry.__meta.component === 'Devtools/Index' && entry.__meta.requestType === 'partial',
+  )!
+  const prefetch = entries.find(
+    (entry) => entry.__meta.component === 'Devtools/PrefetchTarget' && entry.__meta.requestType === 'prefetch',
+  )!
+
+  expect(Object.keys(partial.props ?? {})).toContain('greeting')
+  expect(partial.__meta.batchId).not.toBe(prefetch.__meta.id)
+})
+
+test('it ignores a cache-hit message when no matching prefetch is buffered', async ({ session }) => {
+  await session.openApp('/devtools')
+
+  const tabId = await session.appTabId()
+  const before = await session.waitForEntries(tabId, (list) => list.length >= 1)
+
+  await session.inApp(`
+    window.postMessage(
+      {
+        source: 'inertia-devtools',
+        type: 'cache-hit',
+        url: window.location.origin + '/devtools/never-prefetched',
+        pathname: '/devtools/never-prefetched',
+        method: 'GET',
+        timestamp: Date.now(),
+      },
+      window.location.origin,
+    )
+
+    return true
+  `)
+
+  await expect.poll(async () => (await session.entries(tabId)).length).toBe(before.length)
+  await expect
+    .poll(async () => (await session.entries(tabId)).every((entry) => (entry.__meta.consumedAt?.length ?? 0) === 0))
+    .toBe(true)
+})
+
+test('it dedupes a re-broadcast entry on the panel side', async ({ session }) => {
+  await session.openApp('/devtools')
+
+  const tabId = await session.appTabId()
+  const entries = await session.waitForEntries(tabId, (list) => list.length === 1)
+
+  await session.openPanel(tabId)
+
+  await expect.poll(async () => (await session.timelineRows()).length).toBe(1)
+
+  await session.appendEntry(tabId, entries[0])
+  await session.appendEntry(tabId, entries[0])
+
+  await session.toPanel()
+  await expect.poll(async () => (await session.timelineRows()).length).toBe(1)
+})
+
+test('it keeps an index partial in the index batch and jumps from the cache-hit to the prefetch it consumed', async ({
+  session,
+}) => {
+  await session.openApp('/devtools')
+
+  const tabId = await session.appTabId()
+
+  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+  await session.waitForEntries(tabId, (list) => list.length === 1)
+
+  // A partial reload of the index stands in for an infinite-scroll fetch: it shares the index page's
+  // batchId with the prefetch below.
+  await session.driver.findElement(By.xpath('//button[normalize-space()="Reload greeting"]')).click()
+  await session.waitForEntries(tabId, (list) =>
+    list.some((entry) => entry.__meta.component === 'Devtools/Index' && entry.__meta.requestType === 'partial'),
+  )
+
+  await session.hover(await session.driver.findElement(By.linkText('Prefetch')))
+  await session.waitForEntries(tabId, (list) => list.some((entry) => entry.__meta.requestType === 'prefetch'))
+
+  await session.driver.findElement(By.linkText('Prefetch')).click()
+  await session.waitForEntries(tabId, (list) => list.some((entry) => entry.__meta.requestType === 'cache-hit'))
+
+  await session.openPanel(tabId)
+
+  await expect.poll(async () => (await session.rowsContaining('cache-hit')).length).toBe(1)
+
+  // The cache-hit consumed the prefetch, so it leaves the index batch. The index partial must
+  // therefore still render before the cache-hit row, not be pulled under it.
+  const texts = await Promise.all((await session.timelineRows()).map(async (row) => await row.getText()))
+  const partialIndex = texts.findIndex((text) => text.includes('partial'))
+  const cacheHitIndex = texts.findIndex((text) => text.includes('cache-hit'))
+
+  expect(partialIndex).toBeGreaterThanOrEqual(0)
+  expect(cacheHitIndex).toBeGreaterThanOrEqual(0)
+  expect(partialIndex).toBeLessThan(cacheHitIndex)
+
+  await session.selectRow('cache-hit')
+  await session.driver.findElement(By.xpath('//button[normalize-space()="View prefetch"]')).click()
+
+  await expect
+    .poll(async () => {
+      const [row] = await session.rowsContaining('prefetch · consumed')
+
+      return await row.getAttribute('aria-selected')
+    })
+    .toBe('true')
+})
+
+test('it captures POST and GET entries in the same buffer', async ({ session }) => {
+  await session.openApp('/devtools')
+
+  const tabId = await session.appTabId()
+  await session.waitForEntries(tabId, (list) => list.length === 1)
+
+  await session.driver.findElement(By.xpath('//button[normalize-space()="Redirect"]')).click()
+  await session.driver.wait(
+    until.elementLocated(By.xpath('//p[@id="from"][normalize-space()="redirect-source"]')),
+    10_000,
+  )
+
+  const entries = await session.waitForEntries(
+    tabId,
+    (list) =>
+      list.some((entry) => entry.__meta.method === 'POST') &&
+      list.some((entry) => entry.__meta.component === 'Devtools/RedirectTarget'),
+  )
+
+  expect(entries.filter((entry) => entry.__meta.method === 'POST')).toHaveLength(1)
+  expect(entries.filter((entry) => entry.__meta.method === 'GET')).toHaveLength(2)
+})
+
+test('it does not synthesise client visits for post-success history writes during partial reloads', async ({
+  session,
+}) => {
+  await session.openApp('/devtools')
+
+  const tabId = await session.appTabId()
+
+  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+  await session.waitForEntries(tabId, (list) => list.length === 1)
+
+  await session.driver.findElement(By.linkText('Partial')).click()
+  await session.driver.wait(until.elementLocated(By.css('#summary-total')), 10_000)
+  await session.waitForEntries(tabId, (list) => list.some((entry) => entry.__meta.component === 'Devtools/Partial'))
+
+  await session.inApp(`
+    document.addEventListener(
+      'inertia:success',
+      () => {
+        queueMicrotask(() => {
+          if (window.history.state) {
+            window.history.replaceState(window.history.state, '', window.location.href)
+          }
+        })
+      },
+      { once: true },
+    )
+
+    return true
+  `)
+
+  await session.driver.findElement(By.css('#reload-only')).click()
+  await session.waitForEntries(
+    tabId,
+    (list) => list.filter((entry) => entry.__meta.component === 'Devtools/Partial').length === 2,
+  )
+
+  await new Promise((wait) => setTimeout(wait, 250))
+
+  expect((await session.entries(tabId)).some((entry) => entry.__meta.requestType === 'client-visit')).toBe(false)
+
+  await session.driver.findElement(By.css('#reload-rapid-history-restores')).click()
+  await session.waitForEntries(
+    tabId,
+    (list) =>
+      list.filter((entry) => entry.__meta.component === 'Devtools/Partial' && entry.__meta.requestType === 'partial')
+        .length === 4,
+  )
+
+  await new Promise((wait) => setTimeout(wait, 500))
+
+  expect((await session.entries(tabId)).some((entry) => entry.__meta.requestType === 'client-visit')).toBe(false)
+})
+
+test('it forwards the parent-out header as the parent of the next partial visit', async ({ session }) => {
+  await session.openApp('/devtools')
+
+  const tabId = await session.appTabId()
+
+  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+
+  const [initial] = await session.waitForEntries(tabId, (list) => list.length === 1)
+
+  await session.driver.findElement(By.xpath('//button[normalize-space()="Reload greeting"]')).click()
+
+  const entries = await session.waitForEntries(tabId, (list) =>
+    list.some((entry) => entry.__meta.component === 'Devtools/Index' && entry.__meta.requestType === 'partial'),
+  )
+
+  // Asserted off the recorded request headers rather than off an intercepted request: WebDriver has
+  // no request interception, and the recorder stores every inbound header on the entry anyway.
+  const partial = entries.find(
+    (entry) => entry.__meta.component === 'Devtools/Index' && entry.__meta.requestType === 'partial',
+  )!
+
+  expect(partial.http.requestHeaders['x-inertia-devtools-parent']).toBe(initial.__meta.id)
+})

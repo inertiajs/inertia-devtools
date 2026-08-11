@@ -116,3 +116,34 @@ test('it builds a file link for every editor scheme and drops the link when set 
   await expect.poll(async () => (await session.driver.findElements(link)).length).toBe(0)
   expect(await session.detailText()).toContain('DevtoolsController.php:12')
 })
+
+const EDITOR_PICKER = By.css('select[aria-label="Editor for file links"]')
+
+test('it remembers the picked editor across a panel reload', async ({ session }) => {
+  await session.openApp('/devtools')
+
+  const tabId = await session.appTabId()
+  await session.waitForEntries(tabId, (list) => list.length === 1)
+  await session.openPanel(tabId)
+
+  expect(await session.driver.findElement(EDITOR_PICKER).getAttribute('value')).toBe('vscode')
+
+  await session.selectRow('/devtools')
+  await session.openDetailTab('route')
+  await session.selectEditor('phpstorm')
+
+  const tabUuid = await session.storedTabUuid(tabId)
+  const tabKey = `ui-prefs-${tabUuid}`
+
+  // The editor is a global preference, not a per-tab one: it lives under `ui-global-prefs` and has to
+  // stay out of the tab-scoped record, which the open Route tab proves is being written beside it.
+  await expect
+    .poll(async () => await session.storedValues(['ui-global-prefs', tabKey]))
+    .toMatchObject({ 'ui-global-prefs': { editor: 'phpstorm' }, [tabKey]: { activeTab: 'route' } })
+
+  expect((await session.storedValues([tabKey]))[tabKey]).not.toHaveProperty('editor')
+
+  await session.reloadPanel()
+
+  await expect.poll(async () => await session.driver.findElement(EDITOR_PICKER).getAttribute('value')).toBe('phpstorm')
+})

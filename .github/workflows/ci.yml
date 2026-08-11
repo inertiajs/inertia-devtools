@@ -96,8 +96,8 @@ jobs:
       fail-fast: false
       matrix:
         # The shared suite (tests/e2e/shared) runs the same specs on both browsers through WebDriver.
-        # The `chromium` project, the original Playwright suite, is deliberately absent while the
-        # shared suite grows to cover it. Run that one locally with `pnpm test:e2e:chrome`.
+        # One project per job rather than one job running both: the Firefox sessions derive their
+        # debugger port from the worker index, so two projects at once would race for the same port.
         project: [chromium-selenium, firefox]
 
     steps:

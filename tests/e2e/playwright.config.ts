@@ -27,12 +27,9 @@ export default defineConfig({
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
+  // One suite, both browsers. The specs in tests/e2e/shared never name a browser: the project name
+  // picks a driver (see tests/e2e/drivers/fixtures.ts), and Playwright is only the runner.
   projects: [
-    // The original suite: Playwright's own Chromium, which is the only browser it can load an
-    // extension into.
-    { name: 'chromium', testIgnore: /(shared|firefox|chrome-selenium)\// },
-    // One suite, both browsers. The specs in tests/e2e/shared never name a browser: the project
-    // name picks a driver (see tests/e2e/drivers/fixtures.ts), and Playwright is only the runner.
     { name: 'chromium-selenium', testMatch: /shared\/.*\.spec\.ts$/ },
     { name: 'firefox', testMatch: /shared\/.*\.spec\.ts$/ },
   ],

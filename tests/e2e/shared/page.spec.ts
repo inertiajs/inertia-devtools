@@ -110,3 +110,27 @@ test('it pairs a page snapshot with the synthesised client-visit entry', async (
 
   await expect.poll(async () => await session.detailText()).toContain('clientCounter')
 })
+
+test('it captures the page snapshot for a validation-error response that still carries props', async ({ session }) => {
+  await session.openApp('/devtools')
+
+  const tabId = await session.appTabId()
+
+  await expect.poll(async () => await session.devActive(tabId), { timeout: 15_000 }).toBe(true)
+
+  await session.driver.findElement(By.xpath('//button[normalize-space()="Submit validation error"]')).click()
+  await session.driver.wait(
+    until.elementLocated(By.xpath('//p[@id="name-error"][normalize-space()="The name field is required."]')),
+    10_000,
+  )
+
+  const entries = await session.waitForEntries(tabId, (list) =>
+    list.some((entry) => entry.__meta.url.includes('/devtools/validation-error')),
+  )
+
+  const validation = entries.find((entry) => entry.__meta.url.includes('/devtools/validation-error'))!
+
+  await expect
+    .poll(async () => (await session.pageStates(tabId))[validation.__meta.id]?.props ?? null, { timeout: 15_000 })
+    .toMatchObject({ errors: { name: 'The name field is required.' }, submittedName: null })
+})

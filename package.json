@@ -38,7 +38,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test -c tests/e2e/playwright.config.ts",
-    "test:e2e:chrome": "playwright test -c tests/e2e/playwright.config.ts --project=chromium",
+    "test:e2e:chrome": "playwright test -c tests/e2e/playwright.config.ts --project=chromium-selenium",
     "test:e2e:firefox": "playwright test -c tests/e2e/playwright.config.ts --project=firefox",
     "format": "oxfmt",
     "lint": "oxlint ."
