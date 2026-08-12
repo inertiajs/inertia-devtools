@@ -1,32 +1,14 @@
 import { test as base, type TestInfo } from '@playwright/test'
-import type { WebDriver } from 'selenium-webdriver'
 import { createApp, type App } from './app'
-import { launchChrome, type ChromeRuntime } from './chrome'
+import { launchChrome } from './chrome'
 import { createExtension, type Extension } from './extension'
-import { launchFirefox, type FirefoxRuntime } from './firefox'
+import { launchFirefox } from './firefox'
 import { createPanel, type Panel } from './panel'
 
-/**
- * Take the browsers from Selenium Manager rather than from whatever is installed.
- *
- * It downloads and caches both browsers and both drivers, always as a matched pair. Neither local
- * install would do: stable Chrome refuses `--load-extension`, so it starts fine and silently carries
- * no extension, and a driver picked for it then rejects a Chrome for Testing build outright. On the
- * Firefox side it removes the variance of whatever build a machine happens to have.
- */
-process.env.SE_FORCE_BROWSER_DOWNLOAD ??= 'true'
-
-export type BrowserRuntime = ChromeRuntime | FirefoxRuntime
-
-export type BrowserTarget = {
-  name: string
-  version: string
-}
+type BrowserRuntime = Awaited<ReturnType<typeof launchChrome>> | Awaited<ReturnType<typeof launchFirefox>>
 
 type E2EFixtures = {
   app: App
-  browserTarget: BrowserTarget
-  driver: WebDriver
   extension: Extension
   panel: Panel
   runtime: BrowserRuntime
@@ -54,34 +36,21 @@ export const test = base.extend<E2EFixtures>({
     }
   },
 
-  driver: async ({ runtime }, use) => {
-    await use(runtime.driver)
-  },
-
-  extension: async ({ driver, runtime }, use) => {
-    const extension = createExtension(driver, runtime.openExtensionPage)
+  extension: async ({ runtime }, use) => {
+    const extension = createExtension(runtime.driver, runtime.openExtensionPage)
 
     await extension.waitUntilReady()
     await use(extension)
   },
 
-  app: async ({ driver, extension }, use) => {
-    const appHandle = await driver.getWindowHandle()
+  app: async ({ extension, runtime }, use) => {
+    const appHandle = await runtime.driver.getWindowHandle()
 
-    await use(createApp(driver, appHandle, extension.appTabIds))
+    await use(createApp(runtime.driver, appHandle, extension.appTabIds))
   },
 
-  panel: async ({ driver, runtime }, use) => {
-    await use(createPanel(driver, runtime.openExtensionPage))
-  },
-
-  browserTarget: async ({ driver }, use) => {
-    const capabilities = await driver.getCapabilities()
-
-    await use({
-      name: String(capabilities.getBrowserName()),
-      version: String(capabilities.getBrowserVersion()),
-    })
+  panel: async ({ runtime }, use) => {
+    await use(createPanel(runtime.driver, runtime.openExtensionPage))
   },
 })
 

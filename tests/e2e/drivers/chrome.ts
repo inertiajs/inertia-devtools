@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Builder, logging, type WebDriver } from 'selenium-webdriver'
+import { Builder, logging } from 'selenium-webdriver'
 import { Options } from 'selenium-webdriver/chrome.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -20,22 +20,13 @@ function unpackedExtensionId(path: string): string {
 
   return [...digest].map((nibble) => String.fromCharCode(97 + Number.parseInt(nibble, 16))).join('')
 }
-export type ChromeRuntime = {
-  close: () => Promise<void>
-  consoleWarnings: () => Promise<string[]>
-  driver: WebDriver
-  extensionId: string
-  extensionOrigin: string
-  openExtensionPage: (path: string) => Promise<string>
-}
-
 /**
  * Launch one fresh Chrome for Testing session with the unpacked extension loaded.
  *
  * This functional seam intentionally owns only browser-specific work. The per-test fixture may use
  * the returned WebDriver directly and must call `close` in its teardown.
  */
-export async function launchChrome(): Promise<ChromeRuntime> {
+export async function launchChrome() {
   process.env.SE_FORCE_BROWSER_DOWNLOAD ??= 'true'
 
   const extensionPath = realpathSync(extensionDirectory)
@@ -43,7 +34,6 @@ export async function launchChrome(): Promise<ChromeRuntime> {
   const extensionOrigin = `chrome-extension://${extensionId}`
   const loggingPrefs = new logging.Preferences()
   const warnings: string[] = []
-  let closePromise: Promise<void> | null = null
 
   loggingPrefs.setLevel(logging.Type.BROWSER, logging.Level.ALL)
 
@@ -65,14 +55,8 @@ export async function launchChrome(): Promise<ChromeRuntime> {
   try {
     await driver.manage().setTimeouts({ pageLoad: 20_000, script: 10_000 })
 
-    const close = async (): Promise<void> => {
-      closePromise ??= driver.quit()
-
-      await closePromise
-    }
-
     return {
-      close,
+      close: async () => await driver.quit(),
       consoleWarnings: async () => {
         const entries = await driver.manage().logs().get(logging.Type.BROWSER)
 
@@ -83,9 +67,7 @@ export async function launchChrome(): Promise<ChromeRuntime> {
         return [...warnings]
       },
       driver,
-      extensionId,
-      extensionOrigin,
-      openExtensionPage: async (path) => {
+      openExtensionPage: async (path: string) => {
         const url = new URL(path.replace(/^\/+/, ''), `${extensionOrigin}/`).href
 
         await driver.switchTo().newWindow('window')

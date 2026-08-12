@@ -79,8 +79,9 @@ own the transport endpoints; the harness has no endpoint allocator.
 Playwright is the test runner here, not the browser: it loads extensions into Chromium alone, so both
 browsers are driven through `selenium-webdriver` (`tests/e2e/drivers/`). Selenium Manager, which ships
 inside that package, downloads and caches both browsers and both drivers as matched pairs, so there is
-nothing to install and no version to keep in step. `SE_FORCE_BROWSER_DOWNLOAD` is set in
-`drivers/fixtures.ts` so it downloads rather than picking up a local install, and that matters:
+nothing to install and no version to keep in step. Each browser launcher sets
+`SE_FORCE_BROWSER_DOWNLOAD` so Selenium Manager downloads rather than picking up a local install,
+and that matters:
 
 - Stable Chrome refuses `--load-extension`. A local install starts fine and silently carries no
   extension, so the tests need Chrome for Testing.
@@ -103,8 +104,7 @@ Each read is best-effort, so diagnostic failure does not replace the original te
 Firefox retains two privileged WebDriver seams. Geckodriver's `--allow-system-access` service switch
 allows a temporary extension page to be opened from Firefox's browser context and allows the
 Firefox-only `devtools-panel.spec.ts` to open the real toolbox, find and select the registered Inertia
-tool, and wait for its panel to render. Page warnings come from WebDriver BiDi, while parent-process
-warnings are read from Firefox's console API storage.
+tool, and wait for its panel to render. Page warnings come from WebDriver BiDi.
 
 The rest of the harness is functional: `app.ts`, `extension.ts`, and `panel.ts` expose the small
 cross-browser operations used by scenarios, `waits.ts` owns observation helpers, and `fixtures.ts`

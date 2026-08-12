@@ -95,14 +95,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # CI runs one browser project per job, so worker count is a per-job knob. Both projects
-        # currently stay at 4 workers. Lowering Firefox to 2 was measured and only moved within
-        # runner noise, so change these numbers only from observed job times.
-        include:
-          - project: chromium-selenium
-            workers: 4
-          - project: firefox
-            workers: 4
+        project: [chromium-selenium, firefox]
 
     steps:
       - name: Checkout
@@ -169,8 +162,6 @@ jobs:
         run: pnpm --dir tests/e2e/app install
 
       - name: Run e2e tests
-        env:
-          E2E_WORKERS: ${{ matrix.workers }}
         run: pnpm exec playwright test -c tests/e2e/playwright.config.ts --project=${{ matrix.project }}
 
       # The fixture captures the active Selenium URL, title and screenshot plus window handles and
@@ -184,27 +175,3 @@ jobs:
           path: tests/e2e/test-results
           if-no-files-found: error
           retention-days: 7
-
-  # The artifact only exists to hand work from one job to the next, so it goes as soon as the last
-  # browser is done rather than sitting out its retention day.
-  cleanup:
-    name: Discard extension builds
-    timeout-minutes: 5
-    runs-on: ubuntu-24.04
-    needs: e2e
-    if: always()
-
-    permissions:
-      actions: write
-
-    steps:
-      - name: Delete the artifact
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          id="$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
-            --jq '.artifacts[] | select(.name == "extension-builds") | .id')"
-
-          if [ -n "$id" ]; then
-            gh api --method DELETE "repos/${{ github.repository }}/actions/artifacts/$id"
-          fi

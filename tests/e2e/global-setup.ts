@@ -1,10 +1,12 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, rmSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(here, '../..')
+const recorderStorage = resolve(here, 'app/storage/inertia-devtools')
+const clearRecorderStorage = () => rmSync(recorderStorage, { recursive: true, force: true })
 
 function run(command: string, args: string[], cwd: string): void {
   const result = spawnSync(command, args, { cwd, stdio: 'inherit' })
@@ -23,6 +25,8 @@ function run(command: string, args: string[], cwd: string): void {
  * provably testing the same bytes, so there the build only fills in what the download did not.
  */
 export default async () => {
+  clearRecorderStorage()
+
   const missing = (target: string): boolean => !existsSync(resolve(repoRoot, `dist-${target}/manifest.json`))
   const reuseExistingBuild = !!process.env.CI
 
@@ -33,4 +37,6 @@ export default async () => {
   if (!reuseExistingBuild || missing('firefox')) {
     run('pnpm', ['build:firefox'], repoRoot)
   }
+
+  return clearRecorderStorage
 }

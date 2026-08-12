@@ -8,29 +8,13 @@ import { Context, Driver, Options, ServiceBuilder } from 'selenium-webdriver/fir
 const here = dirname(fileURLToPath(import.meta.url))
 const addonPath = resolve(here, '../../../dist-firefox')
 
-export const ADDON_ID = 'devtools@inertiajs.com'
+const ADDON_ID = 'devtools@inertiajs.com'
 
 // Firefox mints a random uuid per install and `moz-extension://` URLs are built from it. Seeding the
 // map that stores it makes the extension's origin known before the add-on exists.
-export const EXTENSION_UUID = 'f7c0d9e2-3a41-4b58-9e6c-1d2f3a4b5c6d'
+const EXTENSION_UUID = 'f7c0d9e2-3a41-4b58-9e6c-1d2f3a4b5c6d'
 
 const EXTENSION_ORIGIN = `moz-extension://${EXTENSION_UUID}`
-
-export type FirefoxToolbox = {
-  currentToolId: string
-  rendered: boolean
-  toolId: string
-  toolLabel: string
-}
-export type FirefoxRuntime = {
-  addonId: string
-  close: () => Promise<void>
-  consoleWarnings: () => Promise<string[]>
-  driver: Driver
-  extensionOrigin: string
-  openExtensionPage: (path: string) => Promise<string>
-  openRealDevtoolsPanel: () => Promise<FirefoxToolbox>
-}
 
 async function inFirefoxChromeContext<T>(driver: Driver, operation: () => Promise<T>): Promise<T> {
   await driver.setContext(Context.CHROME)
@@ -82,7 +66,7 @@ async function openFunctionalFirefoxExtensionPage(driver: Driver, path: string):
 }
 
 /** Open Firefox's real toolbox and prove that its WebExtension tool is registered and selected. */
-export async function openFirefoxToolbox(driver: Driver): Promise<FirefoxToolbox> {
+async function openFirefoxToolbox(driver: Driver): Promise<void> {
   const result = await inFirefoxChromeContext(
     driver,
     async () =>
@@ -122,60 +106,37 @@ export async function openFirefoxToolbox(driver: Driver): Promise<FirefoxToolbox
         await toolbox.selectTool(tool.id)
         await toolbox.getPanelWhenReady(tool.id)
 
-        return { currentToolId: toolbox.currentToolId, rendered: true, toolId: tool.id, toolLabel: tool.label }
+        if (!tool.id.includes('webext-devtools-panel')) {
+          throw new Error('The Inertia tool has an unexpected id: ' + tool.id)
+        }
+
+        if (toolbox.currentToolId !== tool.id) {
+          throw new Error('Firefox selected ' + (toolbox.currentToolId || 'no tool') + ' instead of ' + tool.id)
+        }
       })().then(
-        (value) => done({ ok: true, value }),
+        () => done({ ok: true }),
         (error) => done({ ok: false, error: String(error) }),
       )
-    `)) as { ok: true; value: FirefoxToolbox } | { ok: false; error: string },
+    `)) as { ok: true } | { ok: false; error: string },
   )
 
   if (!result.ok) {
     throw new Error(`The real Firefox DevTools toolbox failed: ${result.error}`)
   }
-
-  if (result.value.currentToolId !== result.value.toolId) {
-    throw new Error(`Firefox selected ${result.value.currentToolId || 'no tool'} instead of ${result.value.toolId}`)
-  }
-
-  return result.value
-}
-
-async function parentFirefoxConsoleWarnings(driver: Driver): Promise<Array<{ key: string; text: string }>> {
-  return await inFirefoxChromeContext(
-    driver,
-    async () =>
-      (await driver.executeScript(`
-        const storage = Cc['@mozilla.org/consoleAPI-storage;1'].getService(Ci.nsIConsoleAPIStorage)
-
-        return storage.getEvents()
-          .filter((event) => event.level === 'warn')
-          .map((event) => {
-            const values = Array.from(event.arguments ?? [], String)
-
-            return {
-              key: [event.innerID, event.timeStamp, event.filename, ...values].map(String).join('|'),
-              text: values.join(' '),
-            }
-          })
-      `)) as Array<{ key: string; text: string }>,
-  )
 }
 
 /**
  * Launch one fresh Firefox profile, install the unsigned build temporarily and expose the few
  * Gecko-only operations that the raw-WebDriver fixture needs.
  */
-export async function launchFirefox(): Promise<FirefoxRuntime> {
+export async function launchFirefox() {
   process.env.SE_FORCE_BROWSER_DOWNLOAD ??= 'true'
 
   const profileDir = await mkdtemp(join(tmpdir(), 'inertia-devtools-firefox-functional-'))
   const warnings: string[] = []
-  const parentWarningKeys = new Set<string>()
   const options = new Options()
   let driver: Driver | null = null
   let inspector: Awaited<ReturnType<typeof LogInspector>> | null = null
-  let closePromise: Promise<void> | null = null
 
   options.setBrowserVersion('stable')
   options.setProfile(profileDir)
@@ -208,39 +169,22 @@ export async function launchFirefox(): Promise<FirefoxRuntime> {
     const launchedDriver = driver
     const launchedInspector = inspector
     const close = async (): Promise<void> => {
-      closePromise ??= (async () => {
+      try {
+        await launchedInspector.close()
+      } finally {
         try {
-          await launchedInspector.close()
+          await launchedDriver.quit()
         } finally {
-          try {
-            await launchedDriver.quit()
-          } finally {
-            await rm(profileDir, { recursive: true, force: true }).catch(() => {})
-          }
+          await rm(profileDir, { recursive: true, force: true }).catch(() => {})
         }
-      })()
-
-      await closePromise
+      }
     }
 
     return {
-      addonId: ADDON_ID,
       close,
-      consoleWarnings: async () => {
-        for (const warning of await parentFirefoxConsoleWarnings(launchedDriver)) {
-          if (parentWarningKeys.has(warning.key)) {
-            continue
-          }
-
-          parentWarningKeys.add(warning.key)
-          warnings.push(warning.text)
-        }
-
-        return [...warnings]
-      },
+      consoleWarnings: async () => [...warnings],
       driver: launchedDriver,
-      extensionOrigin: EXTENSION_ORIGIN,
-      openExtensionPage: async (path) => await openFunctionalFirefoxExtensionPage(launchedDriver, path),
+      openExtensionPage: async (path: string) => await openFunctionalFirefoxExtensionPage(launchedDriver, path),
       openRealDevtoolsPanel: async () => await openFirefoxToolbox(launchedDriver),
     }
   } catch (error) {
