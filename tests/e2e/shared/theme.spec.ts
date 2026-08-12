@@ -9,21 +9,20 @@ const THEME_TOGGLE = 'button[aria-label^="Theme: "]'
  * alone, and Firefox only as a profile preference fixed before the browser starts, so neither can
  * flip it mid-session the way the panel is meant to react to.
  */
-test('it cycles theme modes and persists the choice across a panel reload', async ({ session }) => {
-  await session.openApp('/devtools')
+test('it cycles theme modes and persists the choice across a panel reload', async ({ app, extension, panel }) => {
+  await app.open('/devtools')
 
-  const tabId = await session.appTabId()
-  const tabUuid = await session.storedTabUuid(tabId)
+  const tabId = await extension.appTabId()
+  const tabUuid = await extension.storedTabUuid(tabId)
 
-  await session.waitForEntries(tabId, (list) => list.length === 1)
-  await session.openPanel(tabId)
+  await extension.waitForEntries(tabId, (list) => list.length === 1)
+  await panel.open(tabId)
 
-  const theme = async (): Promise<string | null> =>
-    await (await session.waitFor(THEME_TOGGLE)).getAttribute('aria-label')
+  const theme = async (): Promise<string | null> => await (await panel.waitFor(THEME_TOGGLE)).getAttribute('aria-label')
 
-  const cycle = async (): Promise<void> => await session.click(THEME_TOGGLE)
+  const cycle = async (): Promise<void> => await panel.click(THEME_TOGGLE)
 
-  const htmlClass = async (): Promise<string | null> => await (await session.waitFor('html')).getAttribute('class')
+  const htmlClass = async (): Promise<string | null> => await (await panel.waitFor('html')).getAttribute('class')
 
   expect(await theme()).toBe('Theme: system')
 
@@ -41,10 +40,10 @@ test('it cycles theme modes and persists the choice across a panel reload', asyn
   await cycle()
   await expect.poll(theme).toBe('Theme: light')
 
-  await session.reloadPanel()
+  await panel.reload()
   await expect.poll(theme).toBe('Theme: light')
 
-  const stored = await session.storedValues(['ui-global-prefs', `ui-prefs-${tabId}`, `ui-prefs-${tabUuid}`])
+  const stored = await extension.storedValues(['ui-global-prefs', `ui-prefs-${tabId}`, `ui-prefs-${tabUuid}`])
 
   expect(stored['ui-global-prefs']).toMatchObject({ theme: 'light' })
   expect(stored[`ui-prefs-${tabId}`]).toBeUndefined()

@@ -1,7 +1,10 @@
-import { test as base } from '@playwright/test'
-import { ChromeSession } from './chrome'
-import { FirefoxSession } from './firefox'
-import type { BrowserSession } from './session'
+import { test as base, type TestInfo } from '@playwright/test'
+import type { WebDriver } from 'selenium-webdriver'
+import { createApp, type App } from './app'
+import { launchChrome, type ChromeRuntime } from './chrome'
+import { createExtension, type Extension } from './extension'
+import { launchFirefox, type FirefoxRuntime } from './firefox'
+import { createPanel, type Panel } from './panel'
 
 /**
  * Take the browsers from Selenium Manager rather than from whatever is installed.
@@ -13,93 +16,108 @@ import type { BrowserSession } from './session'
  */
 process.env.SE_FORCE_BROWSER_DOWNLOAD ??= 'true'
 
-/**
- * One browser per worker, reset between tests.
- *
- * A browser per test cost more than every test body put together: launching one, installing the
- * extension into it and waiting for the background is 2.3s on Chrome and 1.5s on Firefox, so 53 of
- * them across four workers spent half a minute per project before any test did work. Firefox paid
- * the worst of it, since four concurrent instances (each a parent process, its content processes and
- * a debugger server) oversubscribe a 4 vCPU runner far harder than four headless Chromes.
- *
- * The trade is that a test no longer gets a fresh profile, so `BrowserSession.reset` has to name
- * everything a test can leave behind.
- */
-class WorkerBrowser {
-  private session: BrowserSession | null = null
+export type BrowserRuntime = ChromeRuntime | FirefoxRuntime
 
-  constructor(
-    private readonly project: string,
-    private readonly slot: number,
-  ) {}
+export type BrowserTarget = {
+  name: string
+  version: string
+}
 
-  /**
-   * The session for the test about to run.
-   *
-   * A freshly launched browser needs no reset, and a launch is also the recovery path: a session the
-   * suite has spent (see `isReusable`) or one whose reset failed is replaced rather than handed on,
-   * because everything left in the worker would otherwise fail on the same wedged browser.
-   */
-  async forTest(): Promise<BrowserSession> {
-    if (this.session && !(await this.session.isReusable())) {
-      await this.stop()
-    }
-
-    if (!this.session) {
-      this.session = await this.start()
-
-      return this.session
-    }
-
-    try {
-      await this.session.reset()
-    } catch (error) {
-      console.warn(`[e2e] relaunching the browser, resetting it failed: ${error}`)
-      await this.stop()
-      this.session = await this.start()
-    }
-
-    return this.session
-  }
-
-  async stop(): Promise<void> {
-    const session = this.session
-    this.session = null
-
-    await session?.stop().catch(() => {})
-  }
-
-  private async start(): Promise<BrowserSession> {
-    // Only Firefox needs a port of its own, for the debugger server the panel is read through.
-    return this.project === 'firefox' ? await FirefoxSession.start(this.slot) : await ChromeSession.start()
-  }
+type E2EFixtures = {
+  app: App
+  browserTarget: BrowserTarget
+  driver: WebDriver
+  extension: Extension
+  panel: Panel
+  runtime: BrowserRuntime
 }
 
 /**
- * One suite, two browsers.
+ * One fresh Selenium browser and profile per test, selected by the Playwright project.
  *
- * The Playwright project name picks the implementation, so a spec under `tests/e2e/shared` never
- * mentions a browser and runs on both. Playwright is only the test runner here: the browsers are
- * driven by chromedriver and geckodriver, since Playwright loads extensions in Chromium alone.
+ * Playwright Test owns only fixture orchestration, assertions and reporting. Selenium owns every
+ * browser interaction, and the runtime fixture always closes the exact session it launched.
  */
-export const test = base.extend<{ session: BrowserSession }, { workerBrowser: WorkerBrowser }>({
-  workerBrowser: [
-    // eslint-disable-next-line no-empty-pattern -- Playwright's no-dependency fixture signature
-    async ({}, use, workerInfo) => {
-      const browser = new WorkerBrowser(workerInfo.project.name, workerInfo.parallelIndex)
+export const test = base.extend<E2EFixtures>({
+  // eslint-disable-next-line no-empty-pattern -- Playwright requires a destructured fixture argument
+  runtime: async ({}, use, testInfo) => {
+    const runtime = testInfo.project.name === 'firefox' ? await launchFirefox() : await launchChrome()
 
-      try {
-        await use(browser)
-      } finally {
-        await browser.stop()
+    try {
+      await use(runtime)
+
+      if (testInfo.status !== testInfo.expectedStatus) {
+        await attachFailureEvidence(runtime, testInfo)
       }
-    },
-    { scope: 'worker' },
-  ],
+    } finally {
+      await runtime.close().catch(() => {})
+    }
+  },
 
-  session: async ({ workerBrowser }, use) => {
-    await use(await workerBrowser.forTest())
+  driver: async ({ runtime }, use) => {
+    await use(runtime.driver)
+  },
+
+  extension: async ({ driver, runtime }, use) => {
+    const extension = createExtension(driver, runtime.openExtensionPage)
+
+    await extension.waitUntilReady()
+    await use(extension)
+  },
+
+  app: async ({ driver, extension }, use) => {
+    const appHandle = await driver.getWindowHandle()
+
+    await use(createApp(driver, appHandle, extension.appTabIds))
+  },
+
+  panel: async ({ driver, runtime }, use) => {
+    await use(createPanel(driver, runtime.openExtensionPage))
+  },
+
+  browserTarget: async ({ driver }, use) => {
+    const capabilities = await driver.getCapabilities()
+
+    await use({
+      name: String(capabilities.getBrowserName()),
+      version: String(capabilities.getBrowserVersion()),
+    })
   },
 })
 
 export const expect = test.expect
+
+/** Capture only the active WebDriver window and small session facts before teardown. */
+async function attachFailureEvidence(runtime: BrowserRuntime, testInfo: TestInfo): Promise<void> {
+  const errors: string[] = []
+  const evidence: Record<string, unknown> = {}
+  const capture = async (label: string, read: () => Promise<unknown>): Promise<void> => {
+    try {
+      evidence[label] = await read()
+    } catch (error) {
+      errors.push(`${label}: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`)
+    }
+  }
+
+  await capture('url', async () => await runtime.driver.getCurrentUrl())
+  await capture('title', async () => await runtime.driver.getTitle())
+  await capture('windowHandles', async () => await runtime.driver.getAllWindowHandles())
+  await capture('consoleWarnings', runtime.consoleWarnings)
+  await capture('screenshot', async () => {
+    const screenshot = await runtime.driver.takeScreenshot()
+
+    await testInfo.attach('selenium-screenshot.png', {
+      body: Buffer.from(screenshot, 'base64'),
+      contentType: 'image/png',
+    })
+
+    return 'attached'
+  })
+
+  evidence.errors = errors
+
+  await testInfo.attach('selenium-session.json', {
+    body: Buffer.from(JSON.stringify(evidence, null, 2)),
+    contentType: 'application/json',
+  })
+}

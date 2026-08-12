@@ -72,10 +72,9 @@ pnpm test:e2e:chrome               # Chrome only
 pnpm test:e2e:firefox              # Firefox only
 ```
 
-Running both projects in one Playwright process is safe: worker slots are shared across projects, so
-`testInfo.parallelIndex` is unique among concurrently running workers, and Chrome allocates no
-debugger port at all. The port risks are two separate Playwright e2e processes reusing the same
-worker slots, or orphaned Firefox browsers holding a debugger port after an interrupted run.
+Each test launches a fresh browser session and profile, and its fixture closes that exact runtime in
+teardown. Both projects may run in one Playwright process because Selenium and the operating system
+own the transport endpoints; the harness has no endpoint allocator.
 
 Playwright is the test runner here, not the browser: it loads extensions into Chromium alone, so both
 browsers are driven through `selenium-webdriver` (`tests/e2e/drivers/`). Selenium Manager, which ships
@@ -92,16 +91,29 @@ nothing to install and no version to keep in step. `SE_FORCE_BROWSER_DOWNLOAD` i
 
 Background state is read through the messages the panel itself uses (`panel:hydrate` and
 `panel:hydrate-page-state`), sent from an extension page. A Chrome service worker and a Firefox event
-page answer those identically, so no CDP and no RDP is involved. Both are started lazily, which is why
-a session waits for the background to answer before the first navigation: `webRequest.onHeadersReceived`
-is what records an entry, and a navigation that beats it awake is never seen.
+page answer those identically, so no browser debugging protocol is involved. Both are started lazily,
+which is why a session waits for the background to answer before the first navigation:
+`webRequest.onHeadersReceived` is what records an entry, and a navigation that beats it awake is
+never seen.
 
-Firefox keeps one thing of its own, `drivers/rdp.ts`, a small Remote Debugging Protocol client. It
-opens extension pages because no driver may navigate to a `moz-extension://` URL (geckodriver answers
-`UnsupportedOperationError`, Playwright hangs), and opening the tab from privileged chrome JS needs
-`--remote-allow-system-access`, which geckodriver refuses to accept as a capability. It also reads the
-app tab console, because geckodriver has no browser log endpoint and Firefox's `consoleWarnings`
-implementation has nowhere else to get those messages.
+An unexpected test result triggers proportional failure capture before teardown. The fixture records
+the active URL and title, all window handles, browser warnings, and one active-window screenshot.
+Each read is best-effort, so diagnostic failure does not replace the original test failure.
+
+Firefox retains two privileged WebDriver seams. Geckodriver's `--allow-system-access` service switch
+allows a temporary extension page to be opened from Firefox's browser context and allows the
+Firefox-only `devtools-panel.spec.ts` to open the real toolbox, find and select the registered Inertia
+tool, and wait for its panel to render. Page warnings come from WebDriver BiDi, while parent-process
+warnings are read from Firefox's console API storage.
+
+The rest of the harness is functional: `app.ts`, `extension.ts`, and `panel.ts` expose the small
+cross-browser operations used by scenarios, `waits.ts` owns observation helpers, and `fixtures.ts`
+creates and tears down one runtime per test.
+
+Chrome still has one explicit manual boundary. Its headless DevTools frontend runs the extension's
+DevTools entry page but does not expose custom panels to WebDriver. A unit test therefore locks the
+`panels.create` call and tab-specific URL, while the shared suite exercises the built panel directly.
+The first manual smoke step remains the proof that Chrome registers the panel in the real toolbox.
 
 ## Manual smoke checklist
 

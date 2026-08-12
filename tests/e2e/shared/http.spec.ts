@@ -1,27 +1,15 @@
 import { expect, test } from '../drivers/fixtures'
 
-test('it renders request and response detail in the HTTP tab', async ({ session }) => {
-  await session.openApp('/devtools')
-  await session.clickLink('Navigate')
-  await session.waitFor('#user-name')
+test('it records and renders GET response detail without a request body', async ({ app, extension, panel }) => {
+  await app.open('/devtools')
+  await app.clickLink('Navigate')
+  await app.waitFor('#user-name')
 
-  await session.clickLink('Back')
-  await session.waitFor('#greeting')
-
-  await session.clickButton('Submit post render')
-  await session.waitFor('#report')
-
-  const tabId = await session.appTabId()
-
-  const entries = await session.waitForEntries(
-    tabId,
-    (list) =>
-      list.some((entry) => entry.__meta.component === 'Devtools/Navigate') &&
-      list.some((entry) => entry.__meta.component === 'Devtools/PostRenderResult'),
+  const tabId = await extension.appTabId()
+  const entries = await extension.waitForEntries(tabId, (list) =>
+    list.some((entry) => entry.__meta.component === 'Devtools/Navigate'),
   )
-
   const navigate = entries.find((entry) => entry.__meta.component === 'Devtools/Navigate')!
-  const postRender = entries.find((entry) => entry.__meta.component === 'Devtools/PostRenderResult')!
 
   expect(navigate.http.responseBody).toMatchObject({
     status: 'present',
@@ -33,6 +21,32 @@ test('it renders request and response detail in the HTTP tab', async ({ session 
   })
   expect(navigate.http.responseBody).toHaveProperty('value.version')
   expect(navigate.http.requestBody).toMatchObject({ status: 'empty' })
+
+  await panel.open(tabId)
+  await panel.selectRow('Devtools/Navigate')
+  await panel.openDetailTab('http')
+
+  await expect.poll(async () => await panel.detailText()).toContain('RESPONSE BODY')
+
+  const getDetail = await panel.detailText()
+
+  expect(getDetail).toContain('REQUEST HEADERS')
+  expect(getDetail).toContain('x-inertia')
+  expect(getDetail).toContain('x-inertia-devtools-id')
+  expect(getDetail).toContain('"Devtools/Navigate"')
+  expect(getDetail).not.toContain('REQUEST BODY')
+})
+
+test('it records and renders POST request and response bodies', async ({ app, extension, panel }) => {
+  await app.open('/devtools')
+  await app.clickButton('Submit post render')
+  await app.waitFor('#report')
+
+  const tabId = await extension.appTabId()
+  const entries = await extension.waitForEntries(tabId, (list) =>
+    list.some((entry) => entry.__meta.component === 'Devtools/PostRenderResult'),
+  )
+  const postRender = entries.find((entry) => entry.__meta.component === 'Devtools/PostRenderResult')!
 
   expect(postRender.http.requestBody).toMatchObject({
     status: 'present',
@@ -46,42 +60,32 @@ test('it renders request and response detail in the HTTP tab', async ({ session 
     },
   })
 
-  await session.openPanel(tabId)
+  await panel.open(tabId)
+  await panel.selectRow('Devtools/PostRenderResult')
+  await panel.openDetailTab('http')
 
-  await session.selectRow('Devtools/Navigate')
-  await session.openDetailTab('http')
+  await expect.poll(async () => await panel.detailText()).toContain('REQUEST BODY')
 
-  await expect.poll(async () => await session.detailText()).toContain('RESPONSE BODY')
-
-  const getDetail = await session.detailText()
-
-  expect(getDetail).toContain('REQUEST HEADERS')
-  expect(getDetail).toContain('x-inertia')
-  expect(getDetail).toContain('x-inertia-devtools-id')
-  expect(getDetail).toContain('"Devtools/Navigate"')
-  expect(getDetail).not.toContain('REQUEST BODY')
-
-  await session.selectRow('Devtools/PostRenderResult')
-  await session.openDetailTab('http')
-
-  await expect.poll(async () => await session.detailText()).toContain('REQUEST BODY')
-
-  const postDetail = await session.detailText()
+  const postDetail = await panel.detailText()
 
   expect(postDetail).toContain('"quarterly"')
   expect(postDetail).toContain('"Devtools/PostRenderResult"')
 })
 
-test('it captures a non-Inertia JSON response and expands its body from the section toggle', async ({ session }) => {
-  await session.openApp('/devtools')
+test('it captures a non-Inertia JSON response and expands its body from the section toggle', async ({
+  app,
+  extension,
+  panel,
+}) => {
+  await app.open('/devtools')
 
-  const tabId = await session.appTabId()
-  await session.waitForEntries(tabId, (list) => list.length === 1)
+  const tabId = await extension.appTabId()
+  await extension.waitForEntries(tabId, (list) => list.length === 1)
 
-  await session.clickButton('Fetch JSON')
-  await session.waitForText('#json-status', '200')
+  await app.clickButton('Fetch JSON')
+  await app.waitForText('#json-status', '200')
 
-  const entries = await session.waitForEntries(tabId, (list) =>
+  const entries = await extension.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.url.includes('/devtools/api-json')),
   )
 
@@ -92,19 +96,19 @@ test('it captures a non-Inertia JSON response and expands its body from the sect
     value: { status: 'ok', tags: ['alpha', 'beta'] },
   })
 
-  await session.openPanel(tabId)
+  await panel.open(tabId)
 
-  await session.selectRow('/devtools/api-json')
-  await session.openDetailTab('http')
+  await panel.selectRow('/devtools/api-json')
+  await panel.openDetailTab('http')
 
-  await expect.poll(async () => await session.detailText()).toContain('RESPONSE BODY')
-  expect(await session.detailText()).not.toContain('"alpha"')
+  await expect.poll(async () => await panel.detailText()).toContain('RESPONSE BODY')
+  expect(await panel.detailText()).not.toContain('"alpha"')
 
-  await session.click('#detail-tabpanel button[aria-label="Expand all"]')
+  await panel.click('#detail-tabpanel button[aria-label="Expand all"]')
 
-  await expect.poll(async () => await session.detailText()).toContain('"alpha"')
+  await expect.poll(async () => await panel.detailText()).toContain('"alpha"')
 
-  await session.click('#detail-tabpanel button[aria-label="Collapse all"]')
+  await panel.click('#detail-tabpanel button[aria-label="Collapse all"]')
 
-  await expect.poll(async () => await session.detailText()).not.toContain('"alpha"')
+  await expect.poll(async () => await panel.detailText()).not.toContain('"alpha"')
 })

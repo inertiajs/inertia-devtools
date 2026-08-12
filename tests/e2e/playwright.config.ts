@@ -3,11 +3,12 @@ import { defineConfig } from '@playwright/test'
 const runsInCI = !!process.env.CI
 const configuredWorkers = Number.parseInt(process.env.E2E_WORKERS ?? '', 10)
 const ciWorkers = Number.isInteger(configuredWorkers) && configuredWorkers > 0 ? configuredWorkers : 4
-const url = 'http://127.0.0.1:13337'
 const appDir = new URL('./app', import.meta.url).pathname
 
 export default defineConfig({
   testDir: '.',
+  // Keep CI's artifact path independent from the command's working directory.
+  outputDir: './test-results',
   testMatch: /.*\.spec\.ts$/,
   globalSetup: './global-setup.ts',
   fullyParallel: true,
@@ -18,11 +19,6 @@ export default defineConfig({
   // into it and attaching all happen before a test body starts.
   timeout: 45 * 1000,
   expect: { timeout: 10 * 1000 },
-  use: {
-    baseURL: url,
-    trace: 'on-first-retry',
-    screenshot: 'only-on-failure',
-  },
   // One suite, both browsers. The specs in tests/e2e/shared never name a browser: the project name
   // picks a driver (see tests/e2e/drivers/fixtures.ts), and Playwright is only the runner.
   // tests/e2e/firefox holds what only Gecko can do, so nothing in shared/ has to branch on a browser.

@@ -1,27 +1,27 @@
+import { APP_URL } from '../drivers/app'
 import { expect, test } from '../drivers/fixtures'
-import { APP_URL } from '../drivers/session'
 
-test('it renders the client page object in the Page tab', async ({ session }) => {
-  await session.openApp('/devtools')
+test('it renders the client page object in the Page tab', async ({ app, extension, panel }) => {
+  await app.open('/devtools')
 
-  const tabId = await session.appTabId()
+  const tabId = await extension.appTabId()
 
-  await session.waitForDevActive(tabId)
+  await extension.waitForDevActive(tabId)
 
-  await session.clickLink('Navigate')
-  await session.waitFor('#user-name')
+  await app.clickLink('Navigate')
+  await app.waitFor('#user-name')
 
-  const entries = await session.waitForEntries(tabId, (list) =>
+  const entries = await extension.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.component === 'Devtools/Navigate'),
   )
 
   const navigate = entries.find((entry) => entry.__meta.component === 'Devtools/Navigate')!
 
   await expect
-    .poll(async () => Object.keys(await session.pageStates(tabId)), { timeout: 15_000 })
+    .poll(async () => Object.keys(await extension.pageStates(tabId)), { timeout: 15_000 })
     .toContain(navigate.__meta.id)
 
-  const snapshots = await session.pageStates(tabId)
+  const snapshots = await extension.pageStates(tabId)
 
   expect(snapshots[navigate.__meta.id]).toMatchObject({
     component: 'Devtools/Navigate',
@@ -29,101 +29,107 @@ test('it renders the client page object in the Page tab', async ({ session }) =>
     props: { user: { name: 'John', email: 'john@example.com' } },
   })
 
-  await session.openPanel(tabId)
+  await panel.open(tabId)
 
-  await session.selectRow('Devtools/Navigate')
-  await session.openDetailTab('page')
+  await panel.selectRow('Devtools/Navigate')
+  await panel.openDetailTab('page')
 
-  await expect.poll(async () => await session.detailText()).toContain('PAGE STATE AFTER THIS RESPONSE')
+  await expect.poll(async () => await panel.detailText()).toContain('PAGE STATE AFTER THIS RESPONSE')
 
-  const detail = await session.detailText()
+  const detail = await panel.detailText()
 
   expect(detail).toContain('user')
   expect(detail).toContain('visitedAt')
 })
 
-test('it shows server flash carried by the response on the Page tab', async ({ session }) => {
-  await session.openApp('/devtools')
+test('it shows server flash carried by the response on the Page tab', async ({ app, extension, panel }) => {
+  await app.open('/devtools')
 
-  const tabId = await session.appTabId()
+  const tabId = await extension.appTabId()
 
-  await session.waitForDevActive(tabId)
+  await extension.waitForDevActive(tabId)
 
-  await session.clickButton('Server flash')
+  await app.clickButton('Server flash')
 
-  await session.waitForEntries(tabId, (list) =>
+  await extension.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.method === 'POST' && entry.__meta.url.includes('/devtools/flash')),
   )
 
-  await session.openPanel(tabId)
+  await panel.open(tabId)
 
-  await session.selectRow('/devtools/flash')
-  await session.openDetailTab('page')
+  await panel.selectRow('/devtools/flash')
+  await panel.openDetailTab('page')
 
-  await expect.poll(async () => await session.detailText()).toContain('Server flash!')
+  await expect.poll(async () => await panel.detailText()).toContain('Server flash!')
 })
 
-test('it updates the Page tab of the current page when a client-side flash fires', async ({ session }) => {
-  await session.openApp('/devtools')
+test('it updates the Page tab of the current page when a client-side flash fires', async ({
+  app,
+  extension,
+  panel,
+}) => {
+  await app.open('/devtools')
 
-  const tabId = await session.appTabId()
+  const tabId = await extension.appTabId()
 
-  await session.waitForDevActive(tabId)
-  await session.waitForEntries(tabId, (list) => list.length === 1)
-  await session.openPanel(tabId)
+  await extension.waitForDevActive(tabId)
+  await extension.waitForEntries(tabId, (list) => list.length === 1)
+  await panel.open(tabId)
 
-  await session.selectRow('/devtools')
-  await session.openDetailTab('page')
+  await panel.selectRow('/devtools')
+  await panel.openDetailTab('page')
 
-  await expect.poll(async () => await session.detailText()).toContain('PAGE STATE AFTER THIS RESPONSE')
-  expect(await session.detailText()).not.toContain('Client flash!')
+  await expect.poll(async () => await panel.detailText()).toContain('PAGE STATE AFTER THIS RESPONSE')
+  expect(await panel.detailText()).not.toContain('Client flash!')
 
-  await session.backToApp()
-  await session.clickButton('Client flash')
+  await app.clickButton('Client flash')
 
-  await session.toPanel()
+  await panel.show()
 
   // No response is involved, so the flash reaches the panel over a broadcast alone: the open detail
   // has to pick it up without the row being reselected.
-  await expect.poll(async () => await session.detailText()).toContain('Client flash!')
+  await expect.poll(async () => await panel.detailText()).toContain('Client flash!')
 })
 
-test('it pairs a page snapshot with the synthesised client-visit entry', async ({ session }) => {
-  await session.openApp('/devtools')
+test('it pairs a page snapshot with the synthesised client-visit entry', async ({ app, extension, panel }) => {
+  await app.open('/devtools')
 
-  const tabId = await session.appTabId()
+  const tabId = await extension.appTabId()
 
-  await session.waitForDevActive(tabId)
+  await extension.waitForDevActive(tabId)
 
-  await session.clickButton('Client push')
+  await app.clickButton('Client push')
 
-  await session.waitForEntries(tabId, (list) => list.some((entry) => entry.__meta.requestType === 'client-visit'))
+  await extension.waitForEntries(tabId, (list) => list.some((entry) => entry.__meta.requestType === 'client-visit'))
 
-  await session.openPanel(tabId)
+  await panel.open(tabId)
 
-  await session.selectRow('client-visit')
-  await session.openDetailTab('page')
+  await panel.selectRow('client-visit')
+  await panel.openDetailTab('page')
 
-  await expect.poll(async () => await session.detailText()).toContain('clientCounter')
+  await expect.poll(async () => await panel.detailText()).toContain('clientCounter')
 })
 
-test('it captures the page snapshot for a validation-error response that still carries props', async ({ session }) => {
-  await session.openApp('/devtools')
+test('it captures the page snapshot for a validation-error response that still carries props', async ({
+  app,
+  extension,
+}) => {
+  await app.open('/devtools')
 
-  const tabId = await session.appTabId()
+  const tabId = await extension.appTabId()
 
-  await session.waitForDevActive(tabId)
+  await extension.waitForDevActive(tabId)
 
-  await session.clickButton('Submit validation error')
-  await session.waitForText('#name-error', 'The name field is required.')
+  await app.clickButton('Submit validation error')
+  await app.waitForText('#name-error', 'The name field is required.')
 
-  const entries = await session.waitForEntries(tabId, (list) =>
+  const entries = await extension.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.url.includes('/devtools/validation-error')),
   )
 
   const validation = entries.find((entry) => entry.__meta.url.includes('/devtools/validation-error'))!
 
   await expect
-    .poll(async () => (await session.pageStates(tabId))[validation.__meta.id]?.props ?? null, { timeout: 15_000 })
+    .poll(async () => (await extension.pageStates(tabId))[validation.__meta.id]?.props ?? null, { timeout: 15_000 })
     .toMatchObject({ errors: { name: 'The name field is required.' }, submittedName: null })
 })

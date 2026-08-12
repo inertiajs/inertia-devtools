@@ -1,7 +1,8 @@
 import { expect, test } from '../drivers/fixtures'
-import type { BrowserSession } from '../drivers/session'
+import type { Panel } from '../drivers/panel'
+import { expectAbsentFor } from '../drivers/waits'
 
-type TimelineRow = Awaited<ReturnType<BrowserSession['timelineRows']>>[number]
+type TimelineRow = Awaited<ReturnType<Panel['timelineRows']>>[number]
 
 /**
  * Timeline rows badged as a prefetch consumed exactly once.
@@ -9,31 +10,31 @@ type TimelineRow = Awaited<ReturnType<BrowserSession['timelineRows']>>[number]
  * A row consumed twice reads `consumed 2×`, which still contains the single-consumption text, so
  * the substring match behind `rowsContaining` cannot tell the two apart.
  */
-async function consumedOnceRows(session: BrowserSession): Promise<TimelineRow[]> {
-  const rows = await session.timelineRows()
+async function consumedOnceRows(panel: Panel): Promise<TimelineRow[]> {
+  const rows = await panel.timelineRows()
   const texts = await Promise.all(rows.map(async (row) => await row.getText()))
 
   return rows.filter((_, index) => /prefetch · consumed(?! \d)/.test(texts[index]))
 }
 
-test('it groups a partial reload under the visit that rendered the page', async ({ session }) => {
-  await session.openApp('/devtools')
+test('it groups a partial reload under the visit that rendered the page', async ({ app, extension }) => {
+  await app.open('/devtools')
 
-  const tabId = await session.appTabId()
+  const tabId = await extension.appTabId()
 
-  await session.waitForDevActive(tabId)
+  await extension.waitForDevActive(tabId)
 
-  const [initial] = await session.waitForEntries(tabId, (list) => list.length === 1)
+  const [initial] = await extension.waitForEntries(tabId, (list) => list.length === 1)
 
   expect(initial.__meta.status).toBe(200)
   expect(initial.__meta.url).toContain('/devtools')
 
-  await session.clickLink('Partial')
-  await session.waitFor('#summary-total')
+  await app.clickLink('Partial')
+  await app.waitFor('#summary-total')
 
-  await session.click('#reload-only')
+  await app.click('#reload-only')
 
-  const entries = await session.waitForEntries(
+  const entries = await extension.waitForEntries(
     tabId,
     (list) => list.filter((entry) => entry.__meta.component === 'Devtools/Partial').length === 2,
   )
@@ -50,18 +51,19 @@ test('it groups a partial reload under the visit that rendered the page', async 
 })
 
 test('it chains a deferred load under its parent and keeps each page snapshot on its own request', async ({
-  session,
+  app,
+  extension,
 }) => {
-  await session.openApp('/devtools')
+  await app.open('/devtools')
 
-  const tabId = await session.appTabId()
+  const tabId = await extension.appTabId()
 
-  await session.waitForDevActive(tabId)
+  await extension.waitForDevActive(tabId)
 
-  await session.clickLink('Deferred')
-  await session.waitFor('#lazy-value')
+  await app.clickLink('Deferred')
+  await app.waitFor('#lazy-value')
 
-  const entries = await session.waitForEntries(
+  const entries = await extension.waitForEntries(
     tabId,
     (list) => list.filter((entry) => entry.__meta.component === 'Devtools/Deferred').length === 2,
   )
@@ -76,7 +78,7 @@ test('it chains a deferred load under its parent and keeps each page snapshot on
   await expect
     .poll(
       async () => {
-        const snapshots = await session.pageStates(tabId)
+        const snapshots = await extension.pageStates(tabId)
 
         return Boolean(snapshots[parent.__meta.id] && snapshots[child.__meta.id])
       },
@@ -84,7 +86,7 @@ test('it chains a deferred load under its parent and keeps each page snapshot on
     )
     .toBe(true)
 
-  const snapshots = await session.pageStates(tabId)
+  const snapshots = await extension.pageStates(tabId)
 
   expect(snapshots[parent.__meta.id].props).toMatchObject({ eagerProp: 'eager-value' })
   expect(snapshots[parent.__meta.id].props).not.toHaveProperty('lazyProp')
@@ -94,16 +96,20 @@ test('it chains a deferred load under its parent and keeps each page snapshot on
   })
 })
 
-test('it records a prefetch, stamps it consumed, and chains the deferred load that follows', async ({ session }) => {
-  await session.openApp('/devtools')
+test('it records a prefetch, stamps it consumed, and chains the deferred load that follows', async ({
+  app,
+  extension,
+  panel,
+}) => {
+  await app.open('/devtools')
 
-  const tabId = await session.appTabId()
+  const tabId = await extension.appTabId()
 
-  await session.waitForDevActive(tabId)
+  await extension.waitForDevActive(tabId)
 
-  await session.hoverLink('Prefetch')
+  await app.hoverLink('Prefetch')
 
-  const withPrefetch = await session.waitForEntries(tabId, (list) =>
+  const withPrefetch = await extension.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.requestType === 'prefetch'),
   )
 
@@ -112,10 +118,10 @@ test('it records a prefetch, stamps it consumed, and chains the deferred load th
   expect(prefetch.__meta.component).toBe('Devtools/PrefetchTarget')
   expect(prefetch.__meta.consumedAt ?? []).toEqual([])
 
-  await session.clickLink('Prefetch')
-  await session.waitFor('#note')
+  await app.clickLink('Prefetch')
+  await app.waitFor('#note')
 
-  const entries = await session.waitForEntries(
+  const entries = await extension.waitForEntries(
     tabId,
     (list) =>
       list.some((entry) => entry.__meta.id === prefetch.__meta.id && (entry.__meta.consumedAt?.length ?? 0) > 0) &&
@@ -131,27 +137,30 @@ test('it records a prefetch, stamps it consumed, and chains the deferred load th
   expect(deferred.__meta.batchId).toBe(prefetch.__meta.id)
   expect(Object.keys(deferred.props ?? {})).not.toContain('message')
 
-  await session.openPanel(tabId)
+  await panel.open(tabId)
 
-  await expect.poll(async () => (await session.rowsContaining('cache-hit')).length).toBe(1)
-  await expect.poll(async () => (await consumedOnceRows(session)).length).toBe(1)
+  await expect.poll(async () => (await panel.rowsContaining('cache-hit')).length).toBe(1)
+  await expect.poll(async () => (await consumedOnceRows(panel)).length).toBe(1)
 
-  const [prefetchRow] = await consumedOnceRows(session)
+  const [prefetchRow] = await consumedOnceRows(panel)
 
   expect(await prefetchRow.getText()).toContain('/devtools/prefetch-target')
 })
 
-test('it records a redirect and its target as separate roots, with a page only on the target', async ({ session }) => {
-  await session.openApp('/devtools')
+test('it records a redirect and its target as separate roots, with a page only on the target', async ({
+  app,
+  extension,
+}) => {
+  await app.open('/devtools')
 
-  const tabId = await session.appTabId()
+  const tabId = await extension.appTabId()
 
-  await session.waitForDevActive(tabId)
+  await extension.waitForDevActive(tabId)
 
-  await session.clickButton('Redirect')
-  await session.waitFor('#from')
+  await app.clickButton('Redirect')
+  await app.waitFor('#from')
 
-  const entries = await session.waitForEntries(
+  const entries = await extension.waitForEntries(
     tabId,
     (list) =>
       list.some((entry) => entry.__meta.status === 302) &&
@@ -169,25 +178,25 @@ test('it records a redirect and its target as separate roots, with a page only o
 
   // The redirect shares its visit with the target, but only the target ever renders a page.
   await expect
-    .poll(async () => Object.keys(await session.pageStates(tabId)), { timeout: 15_000 })
+    .poll(async () => Object.keys(await extension.pageStates(tabId)), { timeout: 15_000 })
     .toContain(target.__meta.id)
 
-  const snapshots = await session.pageStates(tabId)
+  const snapshots = await extension.pageStates(tabId)
 
   expect(snapshots[target.__meta.id].component).toBe('Devtools/RedirectTarget')
   expect(snapshots[redirect.__meta.id]).toBeUndefined()
 })
 
-test('it synthesises entries for client-side visits', async ({ session }) => {
-  await session.openApp('/devtools')
+test('it synthesises entries for client-side visits', async ({ app, extension, panel }) => {
+  await app.open('/devtools')
 
-  const tabId = await session.appTabId()
+  const tabId = await extension.appTabId()
 
-  await session.waitForDevActive(tabId)
+  await extension.waitForDevActive(tabId)
 
-  await session.clickButton('Client push')
+  await app.clickButton('Client push')
 
-  const afterPush = await session.waitForEntries(tabId, (list) =>
+  const afterPush = await extension.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.requestType === 'client-visit'),
   )
 
@@ -199,9 +208,9 @@ test('it synthesises entries for client-side visits', async ({ session }) => {
   expect(push.__meta.status).toBe(0)
   expect(push.propValues).toMatchObject({ clientCounter: 1 })
 
-  await session.clickButton('Client replace')
+  await app.clickButton('Client replace')
 
-  const afterReplace = await session.waitForEntries(
+  const afterReplace = await extension.waitForEntries(
     tabId,
     (list) => list.filter((entry) => entry.__meta.requestType === 'client-visit').length === 2,
   )
@@ -211,52 +220,55 @@ test('it synthesises entries for client-side visits', async ({ session }) => {
   expect(replace.__meta.url).toContain('client-replaced=')
   expect(typeof (replace.propValues as Record<string, unknown>).clientReplacedAt).toBe('string')
 
-  await session.openPanel(tabId)
+  await panel.open(tabId)
 
-  await expect.poll(async () => (await session.rowsContaining('client-visit')).length).toBe(2)
+  await expect.poll(async () => (await panel.rowsContaining('client-visit')).length).toBe(2)
 })
 
-test('it groups a state-preserving reload but keeps repeat visits to the same url apart', async ({ session }) => {
-  await session.openApp('/devtools')
+test('it groups a state-preserving reload but keeps repeat visits to the same url apart', async ({
+  app,
+  extension,
+}) => {
+  await app.open('/devtools')
 
-  const tabId = await session.appTabId()
+  const tabId = await extension.appTabId()
 
-  await session.waitForDevActive(tabId)
+  await extension.waitForDevActive(tabId)
 
-  const [root] = await session.waitForEntries(tabId, (list) => list.length === 1)
+  const [root] = await extension.waitForEntries(tabId, (list) => list.length === 1)
 
-  await session.clickButton('Reload full')
+  await app.clickButton('Reload full')
 
-  const afterReload = await session.waitForEntries(tabId, (list) => list.length === 2)
+  const afterReload = await extension.waitForEntries(tabId, (list) => list.length === 2)
   const reload = afterReload.find((entry) => entry.__meta.id !== root.__meta.id)!
 
   expect(reload.__meta.requestType).toBe('navigate')
   expect(reload.__meta.batchId).toBe(root.__meta.id)
 
-  await session.clickButton('Visit same URL')
-  await session.waitForEntries(tabId, (list) => list.length === 3)
+  await app.clickButton('Visit same URL')
+  await extension.waitForEntries(tabId, (list) => list.length === 3)
 
-  await session.clickButton('Visit same URL')
+  await app.clickButton('Visit same URL')
 
-  const entries = await session.waitForEntries(tabId, (list) => list.length === 4)
+  const entries = await extension.waitForEntries(tabId, (list) => list.length === 4)
   const visits = entries.slice(2)
 
   expect(visits[0].__meta.batchId).toBeNull()
   expect(visits[1].__meta.batchId).toBeNull()
 })
 
-test('it keeps every deferred group snapshot on the request that resolved it', async ({ session }) => {
-  await session.openApp('/devtools')
+test('it keeps every deferred group snapshot on the request that resolved it', async ({ app, extension }) => {
+  await app.open('/devtools')
 
-  const tabId = await session.appTabId()
+  const tabId = await extension.appTabId()
 
-  await session.waitForDevActive(tabId)
+  await extension.waitForDevActive(tabId)
 
-  await session.clickLink('Deferred groups')
-  await session.waitFor('#slow-total')
-  await session.waitFor('#heavy-name')
+  await app.clickLink('Deferred groups')
+  await app.waitFor('#slow-total')
+  await app.waitFor('#heavy-name')
 
-  const entries = await session.waitForEntries(
+  const entries = await extension.waitForEntries(
     tabId,
     (list) => list.filter((entry) => entry.__meta.component === 'Devtools/DeferredGroups').length === 3,
   )
@@ -276,7 +288,7 @@ test('it keeps every deferred group snapshot on the request that resolved it', a
   await expect
     .poll(
       async () => {
-        const snapshots = await session.pageStates(tabId)
+        const snapshots = await extension.pageStates(tabId)
 
         return [parent, slow, heavy].every((entry) => Boolean(snapshots[entry.__meta.id]))
       },
@@ -284,7 +296,7 @@ test('it keeps every deferred group snapshot on the request that resolved it', a
     )
     .toBe(true)
 
-  const snapshots = await session.pageStates(tabId)
+  const snapshots = await extension.pageStates(tabId)
 
   expect(snapshots[parent.__meta.id].props).toMatchObject({ quickStat: 'quick-value' })
   expect(snapshots[parent.__meta.id].props).not.toHaveProperty('slowStats')
@@ -303,19 +315,19 @@ test('it keeps every deferred group snapshot on the request that resolved it', a
   })
 })
 
-test('it stamps a tab uuid on a recorded entry and never the tab id', async ({ session }) => {
-  await session.openApp('/devtools')
+test('it stamps a tab uuid on a recorded entry and never the tab id', async ({ app, extension }) => {
+  await app.open('/devtools')
 
-  const tabId = await session.appTabId()
+  const tabId = await extension.appTabId()
 
-  await session.waitForDevActive(tabId)
+  await extension.waitForDevActive(tabId)
 
   // Asserted on an Inertia visit rather than the first load: the tab header is injected on
   // sub-requests, so the top-level navigation that opened the page can land without one.
-  await session.clickLink('Navigate')
-  await session.waitFor('#user-name')
+  await app.clickLink('Navigate')
+  await app.waitFor('#user-name')
 
-  const entries = await session.waitForEntries(tabId, (list) =>
+  const entries = await extension.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.component === 'Devtools/Navigate'),
   )
 
@@ -325,16 +337,16 @@ test('it stamps a tab uuid on a recorded entry and never the tab id', async ({ s
   expect(typeof meta.tabUuid).toBe('string')
   expect(meta.tabUuid).not.toBe('')
   expect(meta.tabId).toBeUndefined()
-  expect(meta.tabUuid).toBe(await session.storedTabUuid(tabId))
+  expect(meta.tabUuid).toBe(await extension.storedTabUuid(tabId))
 })
 
-test('it renders the recorder id tag into the document and records that same entry', async ({ session }) => {
-  await session.openApp('/devtools')
+test('it renders the recorder id tag into the document and records that same entry', async ({ app, extension }) => {
+  await app.open('/devtools')
 
-  const tabId = await session.appTabId()
-  const entries = await session.waitForEntries(tabId, (list) => list.length === 1)
+  const tabId = await extension.appTabId()
+  const entries = await extension.waitForEntries(tabId, (list) => list.length === 1)
 
-  const tag = await session.inApp<string | null>(`
+  const tag = await app.evaluate<string | null>(`
     return document.querySelector('script[data-inertia-devtools-id]')?.textContent ?? null
   `)
 
@@ -342,23 +354,23 @@ test('it renders the recorder id tag into the document and records that same ent
   expect(JSON.parse(tag as string)).toBe(entries[0].__meta.id)
 })
 
-test('it does not reparent unrelated traffic to a pending prefetch', async ({ session }) => {
-  await session.openApp('/devtools')
+test('it does not reparent unrelated traffic to a pending prefetch', async ({ app, extension }) => {
+  await app.open('/devtools')
 
-  const tabId = await session.appTabId()
+  const tabId = await extension.appTabId()
 
-  await session.waitForDevActive(tabId)
+  await extension.waitForDevActive(tabId)
 
-  await session.hoverLink('Prefetch')
-  await session.waitForEntries(tabId, (list) =>
+  await app.hoverLink('Prefetch')
+  await extension.waitForEntries(tabId, (list) =>
     list.some(
       (entry) => entry.__meta.component === 'Devtools/PrefetchTarget' && entry.__meta.requestType === 'prefetch',
     ),
   )
 
-  await session.clickButton('Reload greeting')
+  await app.clickButton('Reload greeting')
 
-  const entries = await session.waitForEntries(tabId, (list) =>
+  const entries = await extension.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.component === 'Devtools/Index' && entry.__meta.requestType === 'partial'),
   )
 
@@ -373,13 +385,13 @@ test('it does not reparent unrelated traffic to a pending prefetch', async ({ se
   expect(partial.__meta.batchId).not.toBe(prefetch.__meta.id)
 })
 
-test('it ignores a cache-hit message when no matching prefetch is buffered', async ({ session }) => {
-  await session.openApp('/devtools')
+test('it ignores a cache-hit message when no matching prefetch is buffered', async ({ app, extension }) => {
+  await app.open('/devtools')
 
-  const tabId = await session.appTabId()
-  const before = await session.waitForEntries(tabId, (list) => list.length >= 1)
+  const tabId = await extension.appTabId()
+  const before = await extension.waitForEntries(tabId, (list) => list.length >= 1)
 
-  await session.inApp(`
+  await app.evaluate(`
     window.postMessage(
       {
         source: 'inertia-devtools',
@@ -395,59 +407,61 @@ test('it ignores a cache-hit message when no matching prefetch is buffered', asy
     return true
   `)
 
-  await expect.poll(async () => (await session.entries(tabId)).length).toBe(before.length)
+  await expect.poll(async () => (await extension.entries(tabId)).length).toBe(before.length)
   await expect
-    .poll(async () => (await session.entries(tabId)).every((entry) => (entry.__meta.consumedAt?.length ?? 0) === 0))
+    .poll(async () => (await extension.entries(tabId)).every((entry) => (entry.__meta.consumedAt?.length ?? 0) === 0))
     .toBe(true)
 })
 
-test('it dedupes a re-broadcast entry on the panel side', async ({ session }) => {
-  await session.openApp('/devtools')
+test('it dedupes a re-broadcast entry on the panel side', async ({ app, extension, panel }) => {
+  await app.open('/devtools')
 
-  const tabId = await session.appTabId()
-  const entries = await session.waitForEntries(tabId, (list) => list.length === 1)
+  const tabId = await extension.appTabId()
+  const entries = await extension.waitForEntries(tabId, (list) => list.length === 1)
 
-  await session.openPanel(tabId)
+  await panel.open(tabId)
 
-  await expect.poll(async () => (await session.timelineRows()).length).toBe(1)
+  await expect.poll(async () => (await panel.timelineRows()).length).toBe(1)
 
-  await session.appendEntry(tabId, entries[0])
-  await session.appendEntry(tabId, entries[0])
+  await extension.appendEntry(tabId, entries[0])
+  await extension.appendEntry(tabId, entries[0])
 
-  await session.toPanel()
-  await expect.poll(async () => (await session.timelineRows()).length).toBe(1)
+  await panel.show()
+  await expect.poll(async () => (await panel.timelineRows()).length).toBe(1)
 })
 
 test('it keeps an index partial in the index batch and jumps from the cache-hit to the prefetch it consumed', async ({
-  session,
+  app,
+  extension,
+  panel,
 }) => {
-  await session.openApp('/devtools')
+  await app.open('/devtools')
 
-  const tabId = await session.appTabId()
+  const tabId = await extension.appTabId()
 
-  await session.waitForDevActive(tabId)
-  await session.waitForEntries(tabId, (list) => list.length === 1)
+  await extension.waitForDevActive(tabId)
+  await extension.waitForEntries(tabId, (list) => list.length === 1)
 
   // A partial reload of the index stands in for an infinite-scroll fetch: it shares the index page's
   // batchId with the prefetch below.
-  await session.clickButton('Reload greeting')
-  await session.waitForEntries(tabId, (list) =>
+  await app.clickButton('Reload greeting')
+  await extension.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.component === 'Devtools/Index' && entry.__meta.requestType === 'partial'),
   )
 
-  await session.hoverLink('Prefetch')
-  await session.waitForEntries(tabId, (list) => list.some((entry) => entry.__meta.requestType === 'prefetch'))
+  await app.hoverLink('Prefetch')
+  await extension.waitForEntries(tabId, (list) => list.some((entry) => entry.__meta.requestType === 'prefetch'))
 
-  await session.clickLink('Prefetch')
-  await session.waitForEntries(tabId, (list) => list.some((entry) => entry.__meta.requestType === 'cache-hit'))
+  await app.clickLink('Prefetch')
+  await extension.waitForEntries(tabId, (list) => list.some((entry) => entry.__meta.requestType === 'cache-hit'))
 
-  await session.openPanel(tabId)
+  await panel.open(tabId)
 
-  await expect.poll(async () => (await session.rowsContaining('cache-hit')).length).toBe(1)
+  await expect.poll(async () => (await panel.rowsContaining('cache-hit')).length).toBe(1)
 
   // The cache-hit consumed the prefetch, so it leaves the index batch. The index partial must
   // therefore still render before the cache-hit row, not be pulled under it.
-  const texts = await Promise.all((await session.timelineRows()).map(async (row) => await row.getText()))
+  const texts = await Promise.all((await panel.timelineRows()).map(async (row) => await row.getText()))
   const partialIndex = texts.findIndex((text) => text.includes('partial'))
   const cacheHitIndex = texts.findIndex((text) => text.includes('cache-hit'))
 
@@ -455,30 +469,30 @@ test('it keeps an index partial in the index batch and jumps from the cache-hit 
   expect(cacheHitIndex).toBeGreaterThanOrEqual(0)
   expect(partialIndex).toBeLessThan(cacheHitIndex)
 
-  await session.selectRow('cache-hit')
-  await session.clickButton('View prefetch')
+  await panel.selectRow('cache-hit')
+  await panel.clickButton('View prefetch')
 
   await expect
     .poll(async () => {
-      const [row] = await consumedOnceRows(session)
+      const [row] = await consumedOnceRows(panel)
 
       return await row?.getAttribute('aria-selected')
     })
     .toBe('true')
 
-  expect(await consumedOnceRows(session)).toHaveLength(1)
+  expect(await consumedOnceRows(panel)).toHaveLength(1)
 })
 
-test('it captures POST and GET entries in the same buffer', async ({ session }) => {
-  await session.openApp('/devtools')
+test('it captures POST and GET entries in the same buffer', async ({ app, extension }) => {
+  await app.open('/devtools')
 
-  const tabId = await session.appTabId()
-  await session.waitForEntries(tabId, (list) => list.length === 1)
+  const tabId = await extension.appTabId()
+  await extension.waitForEntries(tabId, (list) => list.length === 1)
 
-  await session.clickButton('Redirect')
-  await session.waitForText('#from', 'redirect-source')
+  await app.clickButton('Redirect')
+  await app.waitForText('#from', 'redirect-source')
 
-  const entries = await session.waitForEntries(
+  const entries = await extension.waitForEntries(
     tabId,
     (list) =>
       list.some((entry) => entry.__meta.method === 'POST') &&
@@ -490,20 +504,21 @@ test('it captures POST and GET entries in the same buffer', async ({ session }) 
 })
 
 test('it does not synthesise client visits for post-success history writes during partial reloads', async ({
-  session,
+  app,
+  extension,
 }) => {
-  await session.openApp('/devtools')
+  await app.open('/devtools')
 
-  const tabId = await session.appTabId()
+  const tabId = await extension.appTabId()
 
-  await session.waitForDevActive(tabId)
-  await session.waitForEntries(tabId, (list) => list.length === 1)
+  await extension.waitForDevActive(tabId)
+  await extension.waitForEntries(tabId, (list) => list.length === 1)
 
-  await session.clickLink('Partial')
-  await session.waitFor('#summary-total')
-  await session.waitForEntries(tabId, (list) => list.some((entry) => entry.__meta.component === 'Devtools/Partial'))
+  await app.clickLink('Partial')
+  await app.waitFor('#summary-total')
+  await extension.waitForEntries(tabId, (list) => list.some((entry) => entry.__meta.component === 'Devtools/Partial'))
 
-  await session.inApp(`
+  await app.evaluate(`
     document.addEventListener(
       'inertia:success',
       () => {
@@ -519,41 +534,45 @@ test('it does not synthesise client visits for post-success history writes durin
     return true
   `)
 
-  await session.click('#reload-only')
-  await session.waitForEntries(
+  await app.click('#reload-only')
+  await extension.waitForEntries(
     tabId,
     (list) => list.filter((entry) => entry.__meta.component === 'Devtools/Partial').length === 2,
   )
 
-  await new Promise((wait) => setTimeout(wait, 250))
+  await expectAbsentFor(
+    async () => (await extension.entries(tabId)).some((entry) => entry.__meta.requestType === 'client-visit'),
+    250,
+    'a client visit after a post-success history write',
+  )
 
-  expect((await session.entries(tabId)).some((entry) => entry.__meta.requestType === 'client-visit')).toBe(false)
-
-  await session.click('#reload-rapid-history-restores')
-  await session.waitForEntries(
+  await app.click('#reload-rapid-history-restores')
+  await extension.waitForEntries(
     tabId,
     (list) =>
       list.filter((entry) => entry.__meta.component === 'Devtools/Partial' && entry.__meta.requestType === 'partial')
         .length === 4,
   )
 
-  await new Promise((wait) => setTimeout(wait, 500))
-
-  expect((await session.entries(tabId)).some((entry) => entry.__meta.requestType === 'client-visit')).toBe(false)
+  await expectAbsentFor(
+    async () => (await extension.entries(tabId)).some((entry) => entry.__meta.requestType === 'client-visit'),
+    500,
+    'a client visit after rapid history restores',
+  )
 })
 
-test('it forwards the parent-out header as the parent of the next partial visit', async ({ session }) => {
-  await session.openApp('/devtools')
+test('it forwards the parent-out header as the parent of the next partial visit', async ({ app, extension }) => {
+  await app.open('/devtools')
 
-  const tabId = await session.appTabId()
+  const tabId = await extension.appTabId()
 
-  await session.waitForDevActive(tabId)
+  await extension.waitForDevActive(tabId)
 
-  const [initial] = await session.waitForEntries(tabId, (list) => list.length === 1)
+  const [initial] = await extension.waitForEntries(tabId, (list) => list.length === 1)
 
-  await session.clickButton('Reload greeting')
+  await app.clickButton('Reload greeting')
 
-  const entries = await session.waitForEntries(tabId, (list) =>
+  const entries = await extension.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.component === 'Devtools/Index' && entry.__meta.requestType === 'partial'),
   )
 

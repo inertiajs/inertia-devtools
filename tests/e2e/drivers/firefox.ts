@@ -2,10 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Builder, type WebDriver } from 'selenium-webdriver'
-import { Driver, Options } from 'selenium-webdriver/firefox.js'
-import { attachToBackground, type ConsoleEval, evalAsync, freePorts, Rdp, tabConsoleMessages } from './rdp'
-import { APP_URL, BrowserSession } from './session'
+import { Builder, LogInspector } from 'selenium-webdriver'
+import { Context, Driver, Options, ServiceBuilder } from 'selenium-webdriver/firefox.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const addonPath = resolve(here, '../../../dist-firefox')
@@ -14,135 +12,242 @@ export const ADDON_ID = 'devtools@inertiajs.com'
 
 // Firefox mints a random uuid per install and `moz-extension://` URLs are built from it. Seeding the
 // map that stores it makes the extension's origin known before the add-on exists.
-const EXTENSION_UUID = 'f7c0d9e2-3a41-4b58-9e6c-1d2f3a4b5c6d'
+export const EXTENSION_UUID = 'f7c0d9e2-3a41-4b58-9e6c-1d2f3a4b5c6d'
 
-export class FirefoxSession extends BrowserSession {
-  private readonly warningKeys = new Set<string>()
-  private readonly warnings: string[] = []
+const EXTENSION_ORIGIN = `moz-extension://${EXTENSION_UUID}`
 
-  private constructor(
-    driver: WebDriver,
-    appHandle: string,
-    readonly rdp: Rdp,
-    readonly background: ConsoleEval,
-    private readonly profileDir: string,
-  ) {
-    super(driver, appHandle)
+export type FirefoxToolbox = {
+  currentToolId: string
+  rendered: boolean
+  toolId: string
+  toolLabel: string
+}
+export type FirefoxRuntime = {
+  addonId: string
+  close: () => Promise<void>
+  consoleWarnings: () => Promise<string[]>
+  driver: Driver
+  extensionOrigin: string
+  openExtensionPage: (path: string) => Promise<string>
+  openRealDevtoolsPanel: () => Promise<FirefoxToolbox>
+}
+
+async function inFirefoxChromeContext<T>(driver: Driver, operation: () => Promise<T>): Promise<T> {
+  await driver.setContext(Context.CHROME)
+
+  try {
+    return await operation()
+  } finally {
+    await driver.setContext(Context.CONTENT)
+  }
+}
+
+async function openFunctionalFirefoxExtensionPage(driver: Driver, path: string): Promise<string> {
+  const knownHandles = await driver.getAllWindowHandles()
+  const url = new URL(path.replace(/^\/+/, ''), `${EXTENSION_ORIGIN}/`).href
+
+  await inFirefoxChromeContext(driver, async () => {
+    await driver.executeScript(
+      `const tab = gBrowser.addTab(arguments[0], {
+         triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal(),
+       })
+       gBrowser.selectedTab = tab`,
+      url,
+    )
+  })
+
+  let extensionHandle: string | undefined
+
+  await driver.wait(
+    async () => {
+      extensionHandle = (await driver.getAllWindowHandles()).find((handle) => !knownHandles.includes(handle))
+
+      return extensionHandle !== undefined
+    },
+    10_000,
+    `The extension page ${url} never became a WebDriver handle`,
+  )
+
+  await driver.switchTo().window(extensionHandle!)
+  await driver.wait(
+    async () =>
+      await driver
+        .executeScript<boolean>('return typeof (globalThis.browser ?? globalThis.chrome)?.runtime === "object"')
+        .catch(() => false),
+    10_000,
+    `The extension page ${url} never exposed its runtime API`,
+  )
+
+  return extensionHandle!
+}
+
+/** Open Firefox's real toolbox and prove that its WebExtension tool is registered and selected. */
+export async function openFirefoxToolbox(driver: Driver): Promise<FirefoxToolbox> {
+  const result = await inFirefoxChromeContext(
+    driver,
+    async () =>
+      (await driver.executeAsyncScript(`
+      const done = arguments[arguments.length - 1]
+
+      void (async () => {
+        const { require } = ChromeUtils.importESModule('resource://devtools/shared/loader/Loader.sys.mjs')
+        const { gDevTools } = require('devtools/client/framework/devtools')
+        const toolbox = await gDevTools.showToolboxForTab(gBrowser.selectedTab)
+        const deadline = Date.now() + 10000
+        const toolDefinitions = () => [
+          ...gDevTools.getToolDefinitionArray(),
+          ...(toolbox.getToolDefinitionArray?.() ?? []),
+          ...(toolbox.additionalToolDefinitions?.values?.() ?? []),
+          ...(toolbox._additionalToolDefinitions?.values?.() ?? []),
+        ]
+        let tool
+
+        while (Date.now() < deadline) {
+          tool = toolDefinitions().find((candidate) => candidate.label === 'Inertia')
+
+          if (tool) {
+            break
+          }
+
+          await new Promise((resolve) => setTimeout(resolve, 100))
+        }
+
+        if (!tool) {
+          throw new Error(
+            'The Inertia tool was not registered; available tools: ' +
+              toolDefinitions().map((candidate) => candidate.label).join(', '),
+          )
+        }
+
+        await toolbox.selectTool(tool.id)
+        await toolbox.getPanelWhenReady(tool.id)
+
+        return { currentToolId: toolbox.currentToolId, rendered: true, toolId: tool.id, toolLabel: tool.label }
+      })().then(
+        (value) => done({ ok: true, value }),
+        (error) => done({ ok: false, error: String(error) }),
+      )
+    `)) as { ok: true; value: FirefoxToolbox } | { ok: false; error: string },
+  )
+
+  if (!result.ok) {
+    throw new Error(`The real Firefox DevTools toolbox failed: ${result.error}`)
   }
 
-  static async start(slot: number): Promise<FirefoxSession> {
-    // Only the debugger server needs a port of our choosing; Selenium Manager resolves geckodriver
-    // and the bindings pick its port themselves.
-    const [debuggerPort] = await freePorts(slot, 1)
-    const profileDir = await mkdtemp(join(tmpdir(), 'inertia-devtools-firefox-'))
-
-    const options = new Options()
-
-    // Selenium Manager downloads and caches a real Firefox for this. Playwright's bundled Firefox
-    // must not be used: that build does not inject extension content scripts, so entries still
-    // arrive off `webRequest` while page state stays empty and every visitId and batchId is null,
-    // which reads as a green suite over a half-dead recorder.
-    options.setBrowserVersion('stable')
-    options.setProfile(profileDir)
-    options.setPreference('devtools.debugger.remote-enabled', true)
-    options.setPreference('devtools.debugger.prompt-connection', false)
-    options.setPreference('devtools.chrome.enabled', true)
-    options.setPreference('extensions.webextensions.uuids', JSON.stringify({ [ADDON_ID]: EXTENSION_UUID }))
-    options.addArguments('-start-debugger-server', String(debuggerPort))
-
-    if (process.env.HEADED !== '1') {
-      options.addArguments('-headless')
-    }
-
-    const driver = (await new Builder().forBrowser('firefox').setFirefoxOptions(options).build()) as Driver
-
-    // Everything below can fail with the browser already up, and the fixture only reaches `stop()`
-    // for a session that was returned. Firefox has the most ways to get here: the add-on install, the
-    // debugger connection and the background attach all happen after launch.
-    let client: Rdp | null = null
-
-    try {
-      // A directory is zipped by the driver, so the build needs no packaging step. Temporary, because
-      // a permanent install would demand a signed add-on.
-      await driver.installAddon(addonPath, true)
-
-      client = await Rdp.connect(debuggerPort)
-
-      const background = await attachToBackground(client, ADDON_ID)
-      const session = new FirefoxSession(driver, await driver.getWindowHandle(), client, background, profileDir)
-
-      await driver.manage().setTimeouts({ pageLoad: 20_000, script: 10_000 })
-      await session.prepare()
-
-      return session
-    } catch (error) {
-      client?.close()
-      await driver.quit().catch(() => {})
-      await rm(profileDir, { recursive: true, force: true }).catch(() => {})
-
-      throw error
-    }
+  if (result.value.currentToolId !== result.value.toolId) {
+    throw new Error(`Firefox selected ${result.value.currentToolId || 'no tool'} instead of ${result.value.toolId}`)
   }
 
-  /**
-   * Let the extension open its own page, then switch to that window.
-   *
-   * This is the one place Firefox needs RDP for a plain UI test: no driver may navigate to a
-   * `moz-extension://` URL (geckodriver answers `UnsupportedOperationError`, Playwright hangs), and
-   * opening the page from privileged chrome JS needs a flag geckodriver refuses to pass on.
-   */
-  protected async openExtensionPage(path: string): Promise<string> {
-    const known = await this.driver.getAllWindowHandles()
+  return result.value
+}
 
-    await evalAsync(this.background, `browser.windows.create({ url: browser.runtime.getURL('${path}') })`)
+async function parentFirefoxConsoleWarnings(driver: Driver): Promise<Array<{ key: string; text: string }>> {
+  return await inFirefoxChromeContext(
+    driver,
+    async () =>
+      (await driver.executeScript(`
+        const storage = Cc['@mozilla.org/consoleAPI-storage;1'].getService(Ci.nsIConsoleAPIStorage)
 
-    for (let attempt = 0; attempt < 100; attempt++) {
-      const handles = await this.driver.getAllWindowHandles()
-      const fresh = handles.find((handle) => !known.includes(handle))
+        return storage.getEvents()
+          .filter((event) => event.level === 'warn')
+          .map((event) => {
+            const values = Array.from(event.arguments ?? [], String)
 
-      if (fresh) {
-        await this.driver.switchTo().window(fresh)
+            return {
+              key: [event.innerID, event.timeStamp, event.filename, ...values].map(String).join('|'),
+              text: values.join(' '),
+            }
+          })
+      `)) as Array<{ key: string; text: string }>,
+  )
+}
 
-        // The handle exists before the page behind it does, and the blank tab underneath carries no
-        // extension APIs, so anything evaluated too early fails on an undefined `browser`.
-        await this.driver.wait(
-          async () =>
-            await this.driver.executeScript<boolean>('return typeof browser !== "undefined"').catch(() => false),
-          10_000,
-          `The extension page ${path} never exposed its APIs`,
-        )
+/**
+ * Launch one fresh Firefox profile, install the unsigned build temporarily and expose the few
+ * Gecko-only operations that the raw-WebDriver fixture needs.
+ */
+export async function launchFirefox(): Promise<FirefoxRuntime> {
+  process.env.SE_FORCE_BROWSER_DOWNLOAD ??= 'true'
 
-        return fresh
+  const profileDir = await mkdtemp(join(tmpdir(), 'inertia-devtools-firefox-functional-'))
+  const warnings: string[] = []
+  const parentWarningKeys = new Set<string>()
+  const options = new Options()
+  let driver: Driver | null = null
+  let inspector: Awaited<ReturnType<typeof LogInspector>> | null = null
+  let closePromise: Promise<void> | null = null
+
+  options.setBrowserVersion('stable')
+  options.setProfile(profileDir)
+  options.setPreference('extensions.webextensions.uuids', JSON.stringify({ [ADDON_ID]: EXTENSION_UUID }))
+  options.enableBidi()
+
+  if (process.env.HEADED !== '1') {
+    options.addArguments('-headless')
+  }
+
+  const service = new ServiceBuilder().addArguments('--allow-system-access')
+
+  try {
+    driver = (await new Builder()
+      .forBrowser('firefox')
+      .setFirefoxOptions(options)
+      .setFirefoxService(service)
+      .build()) as Driver
+
+    await driver.manage().setTimeouts({ pageLoad: 20_000, script: 20_000 })
+    await driver.installAddon(addonPath, true)
+
+    inspector = await LogInspector(driver)
+    await inspector.onConsoleEntry((entry) => {
+      if (entry.level === 'warn') {
+        warnings.push(entry.text)
       }
+    })
 
-      await new Promise((wait) => setTimeout(wait, 100))
+    const launchedDriver = driver
+    const launchedInspector = inspector
+    const close = async (): Promise<void> => {
+      closePromise ??= (async () => {
+        try {
+          await launchedInspector.close()
+        } finally {
+          try {
+            await launchedDriver.quit()
+          } finally {
+            await rm(profileDir, { recursive: true, force: true }).catch(() => {})
+          }
+        }
+      })()
+
+      await closePromise
     }
 
-    throw new Error(`The extension page ${path} never opened`)
-  }
+    return {
+      addonId: ADDON_ID,
+      close,
+      consoleWarnings: async () => {
+        for (const warning of await parentFirefoxConsoleWarnings(launchedDriver)) {
+          if (parentWarningKeys.has(warning.key)) {
+            continue
+          }
 
-  async consoleWarnings(): Promise<string[]> {
-    const messages = await tabConsoleMessages(this.rdp, APP_URL)
+          parentWarningKeys.add(warning.key)
+          warnings.push(warning.text)
+        }
 
-    for (const message of messages) {
-      if (message.level !== 'warn' || this.warningKeys.has(message.key)) {
-        continue
-      }
-
-      this.warningKeys.add(message.key)
-      this.warnings.push(message.text)
+        return [...warnings]
+      },
+      driver: launchedDriver,
+      extensionOrigin: EXTENSION_ORIGIN,
+      openExtensionPage: async (path) => await openFunctionalFirefoxExtensionPage(launchedDriver, path),
+      openRealDevtoolsPanel: async () => await openFirefoxToolbox(launchedDriver),
     }
+  } catch (error) {
+    await inspector?.close().catch(() => {})
+    await driver?.quit().catch(() => {})
+    await rm(profileDir, { recursive: true, force: true }).catch(() => {})
 
-    return this.warnings
-  }
-
-  async stop(): Promise<void> {
-    this.rdp.close()
-
-    try {
-      await this.driver.quit()
-    } finally {
-      await rm(this.profileDir, { recursive: true, force: true }).catch(() => {})
-    }
+    throw error
   }
 }

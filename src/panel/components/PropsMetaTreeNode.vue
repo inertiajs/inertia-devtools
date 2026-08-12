@@ -150,6 +150,7 @@ function onKeydown(event: KeyboardEvent): void {
 <template>
   <li>
     <div
+      :data-testid="`prop-meta-${node.path}`"
       class="group focus-visible:outline-brand-500 flex items-center gap-2 py-1 pr-3 hover:bg-neutral-50 focus-visible:outline-2 focus-visible:-outline-offset-1 dark:hover:bg-neutral-800/50"
       :class="isToggleable ? 'cursor-pointer' : ''"
       :style="{ paddingLeft: rowPaddingLeft }"
@@ -161,6 +162,7 @@ function onKeydown(event: KeyboardEvent): void {
     >
       <span
         v-if="hasChildren || hasTreeValue"
+        :data-testid="`prop-meta-toggle-${node.path}`"
         class="inline-flex w-3 justify-center text-neutral-400 dark:text-neutral-400"
       >
         <component :is="isExpanded(node.path) ? ChevronDown : ChevronRight" class="size-3" aria-hidden="true" />

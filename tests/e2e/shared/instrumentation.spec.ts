@@ -1,19 +1,20 @@
 import { expect, test } from '../drivers/fixtures'
+import { expectUnchangedFor } from '../drivers/waits'
 
-test('it stamps lineage from the page world, not only from response headers', async ({ session }) => {
-  await session.openApp('/devtools')
+test('it stamps lineage from the page world, not only from response headers', async ({ app, extension }) => {
+  await app.open('/devtools')
 
-  const tabId = await session.appTabId()
+  const tabId = await extension.appTabId()
 
-  await session.waitForDevActive(tabId)
+  await extension.waitForDevActive(tabId)
 
-  await session.clickLink('Navigate')
-  await session.waitFor('#user-name')
+  await app.clickLink('Navigate')
+  await app.waitFor('#user-name')
 
   // Entries alone prove nothing about the content scripts: the background records those off
   // `webRequest`. A visitId exists only if page-world.js stamped the request on its way out, which is
   // what separates a working install from a browser that quietly drops content scripts.
-  const entries = await session.waitForEntries(tabId, (list) =>
+  const entries = await extension.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.requestType === 'navigate' && entry.__meta.visitId),
   )
 
@@ -25,33 +26,38 @@ test('it stamps lineage from the page world, not only from response headers', as
 const NEVER_APPEARED = 'interceptor registry never appeared'
 
 test('it stays quiet on a page that boots and warns exactly once when the registry never appears', async ({
-  session,
+  app,
+  extension,
+  runtime,
 }) => {
-  await session.openApp('/devtools')
+  await app.open('/devtools')
 
-  const tabId = await session.appTabId()
+  const tabId = await extension.appTabId()
 
   // A recorded entry proves the registry attached, so the warning can no longer fire. Waiting on
   // that beats sleeping out the whole grace window. The healthy page goes first because it is what
   // proves the reader is alive: asserting an empty list on its own passes just as well when the
   // console is never read at all.
-  await session.waitForDevActive(tabId)
-  await session.waitForEntries(tabId, (list) => list.length === 1)
+  await extension.waitForDevActive(tabId)
+  await extension.waitForEntries(tabId, (list) => list.length === 1)
 
-  expect((await session.consoleWarnings()).filter((warning) => warning.includes(NEVER_APPEARED))).toHaveLength(0)
+  expect((await runtime.consoleWarnings()).filter((warning) => warning.includes(NEVER_APPEARED))).toHaveLength(0)
 
-  await session.openApp('/devtools?noDevtools&interceptor_timeout=500')
-  await session.waitFor('script[data-inertia-devtools-id]')
+  await app.open('/devtools?noDevtools&interceptor_timeout=500')
+  await app.waitForAttached('script[data-inertia-devtools-id]')
 
   await expect
-    .poll(async () => (await session.consoleWarnings()).filter((warning) => warning.includes(NEVER_APPEARED)).length, {
+    .poll(async () => (await runtime.consoleWarnings()).filter((warning) => warning.includes(NEVER_APPEARED)).length, {
       timeout: 10_000,
     })
     .toBe(1)
 
-  // Warning once is the whole point: the grace mark is re-checked as the app boots, and an app that
-  // never boots must not turn that into a console full of the same line.
-  await new Promise((wait) => setTimeout(wait, 2000))
-
-  expect((await session.consoleWarnings()).filter((warning) => warning.includes(NEVER_APPEARED))).toHaveLength(1)
+  // Warning once is the whole point: observe the whole window so a duplicate that appears at any
+  // point fails under the intended contract.
+  await expectUnchangedFor(
+    async () => (await runtime.consoleWarnings()).filter((warning) => warning.includes(NEVER_APPEARED)).length,
+    1,
+    2000,
+    'the missing-registry warning count',
+  )
 })

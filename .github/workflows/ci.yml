@@ -173,16 +173,16 @@ jobs:
           E2E_WORKERS: ${{ matrix.workers }}
         run: pnpm exec playwright test -c tests/e2e/playwright.config.ts --project=${{ matrix.project }}
 
-      # Traces are written on the retry and screenshots on the failure, which is the only window into
-      # a WebDriver or RDP failure that cannot be reproduced locally. Without this they die with the
-      # runner workspace.
+      # The fixture captures the active Selenium URL, title and screenshot plus window handles and
+      # browser warnings before teardown. These attachments are the CI failure evidence because
+      # Playwright does not launch or trace the browser.
       - name: Upload failure artifacts
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: e2e-failures-${{ matrix.project }}
           path: tests/e2e/test-results
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 7
 
   # The artifact only exists to hand work from one job to the next, so it goes as soon as the last
