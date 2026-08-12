@@ -58,23 +58,16 @@ export function createExtension(driver: WebDriver, openExtensionPage: OpenExtens
   }
 
   const waitUntilReady = async (timeout = 20_000): Promise<void> => {
-    const deadline = Date.now() + timeout
-
-    while (Date.now() < deadline) {
-      const alive = await evaluate<boolean>(
-        `return await extension.runtime
+    await driver.wait(
+      async () =>
+        await evaluate<boolean>(
+          `return await extension.runtime
            .sendMessage({ type: 'panel:hydrate', tabId: -1 })
            .then(() => true, () => false)`,
-      ).catch(() => false)
-
-      if (alive) {
-        return
-      }
-
-      await sleep(100)
-    }
-
-    throw new Error('The extension background never answered')
+        ).catch(() => false),
+      timeout,
+      'The extension background never answered',
+    )
   }
 
   const appTabIds = async (appUrl = APP_URL): Promise<number[]> => {
@@ -114,17 +107,11 @@ export function createExtension(driver: WebDriver, openExtensionPage: OpenExtens
   const devActive = async (tabId: number): Promise<boolean | null> => (await hydrate(tabId)).devActive
 
   const waitForDevActive = async (tabId: number, timeout = 15_000): Promise<void> => {
-    const deadline = Date.now() + timeout
-
-    while (Date.now() < deadline) {
-      if (await devActive(tabId)) {
-        return
-      }
-
-      await sleep(100)
-    }
-
-    throw new Error(`The page world never reported dev mode active for tab ${tabId}`)
+    await driver.wait(
+      async () => Boolean(await devActive(tabId)),
+      timeout,
+      `The page world never reported dev mode active for tab ${tabId}`,
+    )
   }
 
   const waitForEntries = async (
@@ -132,20 +119,19 @@ export function createExtension(driver: WebDriver, openExtensionPage: OpenExtens
     matches: (entries: Entry[]) => boolean,
     timeout = 15_000,
   ): Promise<Entry[]> => {
-    const deadline = Date.now() + timeout
     let latest: Entry[] = []
 
-    while (Date.now() < deadline) {
-      latest = await entries(tabId)
+    await driver.wait(
+      async () => {
+        latest = await entries(tabId)
 
-      if (matches(latest)) {
-        return latest
-      }
+        return matches(latest)
+      },
+      timeout,
+      `The buffer for tab ${tabId} never matched`,
+    )
 
-      await sleep(100)
-    }
-
-    throw new Error(`The buffer for tab ${tabId} never matched, it holds ${latest.length} entries`)
+    return latest
   }
 
   const pageStates = async (tabId: number): Promise<Record<string, PageStateSnapshot>> => {
@@ -199,7 +185,3 @@ export function createExtension(driver: WebDriver, openExtensionPage: OpenExtens
 }
 
 export type Extension = ReturnType<typeof createExtension>
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}

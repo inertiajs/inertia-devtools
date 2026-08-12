@@ -42,23 +42,6 @@ export async function waitForText(
   )
 }
 
-/** Prove a forbidden condition never appears during the complete observation window. */
-export async function expectAbsentFor(
-  observe: () => Promise<boolean>,
-  duration: number,
-  description: string,
-): Promise<void> {
-  const deadline = Date.now() + duration
-
-  while (Date.now() < deadline) {
-    if (await observe()) {
-      throw new Error(`${description} appeared during a ${duration}ms negative observation window`)
-    }
-
-    await sleep(Math.min(50, Math.max(1, deadline - Date.now())))
-  }
-}
-
 /** Prove a scalar value remains unchanged during the complete observation window. */
 export async function expectUnchangedFor<T>(
   observe: () => Promise<T>,

@@ -1,5 +1,5 @@
 import { expect, test } from '../drivers/fixtures'
-import { expectAbsentFor } from '../drivers/waits'
+import { expectUnchangedFor } from '../drivers/waits'
 
 test('it classifies a precognition request and filters the timeline down to it', async ({ app, extension, panel }) => {
   await app.open('/devtools')
@@ -109,7 +109,12 @@ test('it recovers after a failed entry fetch when the next ingest succeeds', asy
 
   // The armed 503 leaves nothing to append. Observe the whole negative window so an entry that
   // appears briefly and is later cleared cannot pass.
-  await expectAbsentFor(async () => (await extension.entries(tabId)).length > 0, 2000, 'an entry for the failed replay')
+  await expectUnchangedFor(
+    async () => (await extension.entries(tabId)).length > 0,
+    false,
+    2000,
+    'an entry for the failed replay',
+  )
 
   await app.evaluate(`await fetch('/_inertia/devtools/test/replay-entry/${id}')`)
 

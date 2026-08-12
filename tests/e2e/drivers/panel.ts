@@ -115,12 +115,6 @@ export function createPanel(driver: WebDriver, openExtensionPage: OpenExtensionP
 
   const detailText = async (): Promise<string> => await (await waitFor('#detail-tabpanel')).getText()
 
-  const detailLink = async (text: string): Promise<WebElement> => {
-    await show()
-
-    return await driver.findElement(By.xpath(`//*[@id="detail-tabpanel"]//a[contains(., ${xpathLiteral(text)})]`))
-  }
-
   const typeSearch = async (value: string): Promise<void> => {
     const input = await waitFor('input[aria-label="Search requests by URL or component"]')
 
@@ -163,7 +157,6 @@ export function createPanel(driver: WebDriver, openExtensionPage: OpenExtensionP
     clearSearch,
     click,
     clickButton,
-    detailLink,
     detailText,
     elements,
     open,

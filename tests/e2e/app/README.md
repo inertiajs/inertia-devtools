@@ -12,10 +12,9 @@ Run once after a fresh checkout (idempotent, safe to re-run):
 bash setup.sh
 ```
 
-This installs PHP dependencies, seeds `.env` from `.env.example`, and ensures an
-app key. It needs no database (every route is a stateless `Inertia::render`). The
-e2e `global-setup.ts` and the Playwright `webServer` command both run this script,
-so `php artisan serve` never starts against an empty `vendor/`.
+This installs PHP dependencies and seeds `.env` from `.env.example`. It needs no
+database (every route is a stateless `Inertia::render`). Playwright runs the script
+before starting `php artisan serve`.
 
 ## Manual play
 

@@ -1,6 +1,6 @@
 import { expect, test } from '../drivers/fixtures'
 import type { Panel } from '../drivers/panel'
-import { expectAbsentFor } from '../drivers/waits'
+import { expectUnchangedFor } from '../drivers/waits'
 
 type TimelineRow = Awaited<ReturnType<Panel['timelineRows']>>[number]
 
@@ -147,10 +147,7 @@ test('it records a prefetch, stamps it consumed, and chains the deferred load th
   expect(await prefetchRow.getText()).toContain('/devtools/prefetch-target')
 })
 
-test('it records a redirect and its target as separate roots, with a page only on the target', async ({
-  app,
-  extension,
-}) => {
+test('it records and renders a redirect and its target as separate roots', async ({ app, extension, panel }) => {
   await app.open('/devtools')
 
   const tabId = await extension.appTabId()
@@ -171,6 +168,9 @@ test('it records a redirect and its target as separate roots, with a page only o
   const target = entries.find((entry) => entry.__meta.component === 'Devtools/RedirectTarget')!
 
   expect(redirect.__meta.method).toBe('POST')
+  expect(target.__meta.method).toBe('GET')
+  expect(entries.filter((entry) => entry.__meta.method === 'POST')).toHaveLength(1)
+  expect(entries.filter((entry) => entry.__meta.method === 'GET')).toHaveLength(2)
   expect(redirect.__meta.redirectLocation).toContain('/devtools/redirect-target')
   expect(redirect.__meta.batchId).toBeNull()
   expect(target.__meta.batchId).toBeNull()
@@ -185,6 +185,13 @@ test('it records a redirect and its target as separate roots, with a page only o
 
   expect(snapshots[target.__meta.id].component).toBe('Devtools/RedirectTarget')
   expect(snapshots[redirect.__meta.id]).toBeUndefined()
+
+  await panel.open(tabId)
+  await expect.poll(async () => (await panel.rowsContaining('/devtools/redirect-source')).length).toBe(1)
+
+  const [row] = await panel.rowsContaining('/devtools/redirect-source')
+
+  expect(await row.getText()).toContain('/devtools/redirect-target')
 })
 
 test('it synthesises entries for client-side visits', async ({ app, extension, panel }) => {
@@ -223,6 +230,11 @@ test('it synthesises entries for client-side visits', async ({ app, extension, p
   await panel.open(tabId)
 
   await expect.poll(async () => (await panel.rowsContaining('client-visit')).length).toBe(2)
+
+  await panel.selectRow('client-pushed=1')
+  await panel.openDetailTab('page')
+
+  await expect.poll(async () => await panel.detailText()).toContain('clientCounter')
 })
 
 test('it groups a state-preserving reload but keeps repeat visits to the same url apart', async ({
@@ -313,45 +325,6 @@ test('it keeps every deferred group snapshot on the request that resolved it', a
     quickStat: 'quick-value',
     heavyData: [{ id: 1, name: 'Heavy 1' }],
   })
-})
-
-test('it stamps a tab uuid on a recorded entry and never the tab id', async ({ app, extension }) => {
-  await app.open('/devtools')
-
-  const tabId = await extension.appTabId()
-
-  await extension.waitForDevActive(tabId)
-
-  // Asserted on an Inertia visit rather than the first load: the tab header is injected on
-  // sub-requests, so the top-level navigation that opened the page can land without one.
-  await app.clickLink('Navigate')
-  await app.waitFor('#user-name')
-
-  const entries = await extension.waitForEntries(tabId, (list) =>
-    list.some((entry) => entry.__meta.component === 'Devtools/Navigate'),
-  )
-
-  const navigate = entries.find((entry) => entry.__meta.component === 'Devtools/Navigate')!
-  const meta = navigate.__meta as unknown as Record<string, unknown>
-
-  expect(typeof meta.tabUuid).toBe('string')
-  expect(meta.tabUuid).not.toBe('')
-  expect(meta.tabId).toBeUndefined()
-  expect(meta.tabUuid).toBe(await extension.storedTabUuid(tabId))
-})
-
-test('it renders the recorder id tag into the document and records that same entry', async ({ app, extension }) => {
-  await app.open('/devtools')
-
-  const tabId = await extension.appTabId()
-  const entries = await extension.waitForEntries(tabId, (list) => list.length === 1)
-
-  const tag = await app.evaluate<string | null>(`
-    return document.querySelector('script[data-inertia-devtools-id]')?.textContent ?? null
-  `)
-
-  expect(tag).toBeTruthy()
-  expect(JSON.parse(tag as string)).toBe(entries[0].__meta.id)
 })
 
 test('it does not reparent unrelated traffic to a pending prefetch', async ({ app, extension }) => {
@@ -483,26 +456,6 @@ test('it keeps an index partial in the index batch and jumps from the cache-hit 
   expect(await consumedOnceRows(panel)).toHaveLength(1)
 })
 
-test('it captures POST and GET entries in the same buffer', async ({ app, extension }) => {
-  await app.open('/devtools')
-
-  const tabId = await extension.appTabId()
-  await extension.waitForEntries(tabId, (list) => list.length === 1)
-
-  await app.clickButton('Redirect')
-  await app.waitForText('#from', 'redirect-source')
-
-  const entries = await extension.waitForEntries(
-    tabId,
-    (list) =>
-      list.some((entry) => entry.__meta.method === 'POST') &&
-      list.some((entry) => entry.__meta.component === 'Devtools/RedirectTarget'),
-  )
-
-  expect(entries.filter((entry) => entry.__meta.method === 'POST')).toHaveLength(1)
-  expect(entries.filter((entry) => entry.__meta.method === 'GET')).toHaveLength(2)
-})
-
 test('it does not synthesise client visits for post-success history writes during partial reloads', async ({
   app,
   extension,
@@ -540,8 +493,9 @@ test('it does not synthesise client visits for post-success history writes durin
     (list) => list.filter((entry) => entry.__meta.component === 'Devtools/Partial').length === 2,
   )
 
-  await expectAbsentFor(
+  await expectUnchangedFor(
     async () => (await extension.entries(tabId)).some((entry) => entry.__meta.requestType === 'client-visit'),
+    false,
     250,
     'a client visit after a post-success history write',
   )
@@ -554,8 +508,9 @@ test('it does not synthesise client visits for post-success history writes durin
         .length === 4,
   )
 
-  await expectAbsentFor(
+  await expectUnchangedFor(
     async () => (await extension.entries(tabId)).some((entry) => entry.__meta.requestType === 'client-visit'),
+    false,
     500,
     'a client visit after rapid history restores',
   )

@@ -1,7 +1,7 @@
 import { expect, test } from '../drivers/fixtures'
 import { expectUnchangedFor } from '../drivers/waits'
 
-test('it records a visit and renders it on the timeline', async ({ app, extension, panel }) => {
+test('it records a visit and renders the initial timeline state', async ({ app, extension, panel }) => {
   await app.open('/devtools')
   await app.clickLink('Navigate')
   await app.waitFor('#user-name')
@@ -14,31 +14,70 @@ test('it records a visit and renders it on the timeline', async ({ app, extensio
   await panel.open(tabId)
 
   await expect.poll(async () => (await panel.timelineRows()).length).toBe(2)
+  expect(await panel.text()).toContain('No entry selected')
 
   const [first, second] = await panel.timelineRows()
 
   expect((await first.getText()).replace(/\s+/g, ' ')).toContain('GET /devtools')
   expect((await second.getText()).replace(/\s+/g, ' ')).toContain('Devtools/Navigate')
+
+  const clock = async (): Promise<string> =>
+    await (await panel.waitFor('li[role="option"] [data-testid="recorded-at"]')).getText()
+
+  await expect.poll(clock).toMatch(/^\d{1,2}:\d{2}:\d{2}$/)
+
+  const shown = await clock()
+
+  await expectUnchangedFor(clock, shown, 1500, 'the recorded-at clock')
+  expect(await (await panel.waitFor('li[role="option"] [data-testid="recorded-at"]')).getAttribute('title')).toMatch(
+    /\d/,
+  )
+
+  await panel.selectRow('/devtools/navigate')
+  await expect.poll(async () => await panel.text()).not.toContain('No entry selected')
 })
 
-test('it filters the timeline and opens a row detail', async ({ app, extension, panel }) => {
+test('it filters the timeline and renders validation-error metadata', async ({ app, extension, panel }) => {
   await app.open('/devtools')
+
+  const tabId = await extension.appTabId()
+
+  await extension.waitForDevActive(tabId)
 
   await app.clickButton('Submit validation error')
   await app.waitForText('#name-error', 'The name field is required.')
 
+  const entries = await extension.waitForEntries(tabId, (list) =>
+    list.some((entry) => entry.__meta.url.includes('/devtools/validation-error')),
+  )
+  const validation = entries.find((entry) => entry.__meta.url.includes('/devtools/validation-error'))!
+
+  await expect
+    .poll(async () => (await extension.pageStates(tabId))[validation.__meta.id]?.props ?? null, { timeout: 15_000 })
+    .toMatchObject({ errors: { name: 'The name field is required.' }, submittedName: null })
+
   await app.clickLink('Navigate')
   await app.waitFor('#user-name')
-
-  const tabId = await extension.appTabId()
   await extension.waitForEntries(tabId, (list) => list.length === 3)
+
   await panel.open(tabId)
 
   await expect.poll(async () => (await panel.timelineRows()).length).toBe(3)
 
+  const [errorRow] = await panel.rowsContaining('/devtools/validation-error')
+
+  expect(await errorRow.getText()).toContain('errors')
+
   await panel.typeSearch('navigate')
 
   await expect.poll(async () => (await panel.timelineRows()).length).toBe(1)
+
+  await panel.clearSearch()
+  await expect.poll(async () => (await panel.timelineRows()).length).toBe(3)
+
+  await panel.typeSearch('zzz-no-such-entry')
+  await expect.poll(async () => (await panel.timelineRows()).length).toBe(0)
+  expect(await panel.text()).toContain('No matches')
 
   await panel.clearSearch()
   await expect.poll(async () => (await panel.timelineRows()).length).toBe(3)
@@ -57,20 +96,6 @@ test('it filters the timeline and opens a row detail', async ({ app, extension, 
   await panel.selectFirstRow()
 
   await expect.poll(async () => await panel.text()).toContain('Props')
-})
-
-test('it shows the "no entry selected" detail state until a row is picked', async ({ app, extension, panel }) => {
-  await app.open('/devtools')
-
-  const tabId = await extension.appTabId()
-  await extension.waitForEntries(tabId, (list) => list.length === 1)
-  await panel.open(tabId)
-
-  await expect.poll(async () => await panel.text()).toContain('No entry selected')
-
-  await panel.selectRow('/devtools')
-
-  await expect.poll(async () => await panel.text()).not.toContain('No entry selected')
 })
 
 test('it evicts the oldest entries once the buffer reaches its cap', async ({ app, extension, panel }) => {
@@ -116,26 +141,6 @@ test('it shows the empty state then renders the first row after a navigation', a
   await expect.poll(async () => (await panel.timelineRows()).length).toBe(1)
 })
 
-test('it renders a redirect badge pointing at the redirect target', async ({ app, extension, panel }) => {
-  await app.open('/devtools')
-
-  const tabId = await extension.appTabId()
-  await extension.waitForEntries(tabId, (list) => list.length === 1)
-
-  await app.clickButton('Redirect')
-  await app.waitFor('#from')
-  await extension.waitForEntries(tabId, (list) =>
-    list.some((entry) => entry.__meta.url.includes('/devtools/redirect-source')),
-  )
-
-  await panel.open(tabId)
-
-  await expect.poll(async () => (await panel.rowsContaining('/devtools/redirect-source')).length).toBe(1)
-
-  const [row] = await panel.rowsContaining('/devtools/redirect-source')
-  expect(await row.getText()).toContain('/devtools/redirect-target')
-})
-
 test('it flags a slow request in the timeline', async ({ app, extension, panel }) => {
   await app.open('/devtools')
 
@@ -156,60 +161,6 @@ test('it flags a slow request in the timeline', async ({ app, extension, panel }
   await panel.open(tabId)
 
   await expect.poll(async () => (await panel.rowIcon('/devtools/slow', 'slow')).length).toBe(1)
-})
-
-test('it shows the no-matches state when a search matches nothing', async ({ app, extension, panel }) => {
-  await app.open('/devtools')
-
-  const tabId = await extension.appTabId()
-  await extension.waitForEntries(tabId, (list) => list.length === 1)
-  await panel.open(tabId)
-
-  await panel.typeSearch('zzz-no-such-entry')
-
-  await expect.poll(async () => (await panel.timelineRows()).length).toBe(0)
-  expect(await panel.text()).toContain('No matches')
-})
-
-test('it badges a row whose response carried validation errors', async ({ app, extension, panel }) => {
-  await app.open('/devtools')
-
-  const tabId = await extension.appTabId()
-  await extension.waitForEntries(tabId, (list) => list.length === 1)
-
-  await app.clickButton('Submit validation error')
-  await app.waitForText('#name-error', 'The name field is required.')
-
-  await extension.waitForEntries(tabId, (list) =>
-    list.some((entry) => entry.__meta.url.includes('/devtools/validation-error')),
-  )
-
-  await panel.open(tabId)
-
-  await expect.poll(async () => (await panel.rowsContaining('/devtools/validation-error')).length).toBe(1)
-
-  const [row] = await panel.rowsContaining('/devtools/validation-error')
-
-  expect(await row.getText()).toContain('errors')
-})
-
-test('it shows a static clock time with a full timestamp tooltip', async ({ app, extension, panel }) => {
-  await app.open('/devtools')
-
-  const tabId = await extension.appTabId()
-  await extension.waitForEntries(tabId, (list) => list.length === 1)
-  await panel.open(tabId)
-
-  const CLOCK = 'li[role="option"] [data-testid="recorded-at"]'
-
-  const clockText = async (): Promise<string> => await (await panel.waitFor(CLOCK)).getText()
-
-  await expect.poll(clockText).toMatch(/^\d{1,2}:\d{2}:\d{2}$/)
-
-  const shown = await clockText()
-
-  await expectUnchangedFor(clockText, shown, 1500, 'the recorded-at clock')
-  expect(await (await panel.waitFor(CLOCK)).getAttribute('title')).toMatch(/\d/)
 })
 
 test('it hides the navigate label in the timeline subtitle while keeping partial labels visible', async ({

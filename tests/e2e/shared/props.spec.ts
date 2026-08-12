@@ -37,8 +37,8 @@ test('it renders prop values and prop-type metadata in the Props tab', async ({ 
   const TOKENS_CHEVRON = '#detail-tabpanel [data-testid="prop-meta-toggle-tokens"]'
 
   expect(await (await panel.waitFor(TOKENS_ROW)).getText()).toContain('[0]')
-  expect(await (await panel.waitFor(TOKENS_ROW)).getDomAttribute('role')).toBeNull()
-  expect(await (await panel.waitFor(TOKENS_ROW)).getDomAttribute('aria-expanded')).toBeNull()
+  expect(await (await panel.waitFor(TOKENS_ROW)).getAttribute('role')).toBeNull()
+  expect(await (await panel.waitFor(TOKENS_ROW)).getAttribute('aria-expanded')).toBeNull()
   expect(await panel.elements(TOKENS_CHEVRON)).toHaveLength(0)
 
   await panel.selectRow('/devtools/merge')
@@ -193,10 +193,7 @@ test('it links each prop to its own render source', async ({ app, extension, pan
 
   await expect.poll(async () => await panel.detailText()).toContain('PropsFixture.php:71')
 
-  const href = async (text: string): Promise<string | null> =>
-    await (await panel.detailLink(text)).getDomAttribute('href')
-
-  expect(await href('PropsFixture.php:71')).toBe('vscode://file//tmp/PropsFixture.php:71')
-  expect(await href('PropsFixture.php:94')).toBe('vscode://file//tmp/PropsFixture.php:94')
+  expect(await panel.elements('#detail-tabpanel a[href="vscode://file//tmp/PropsFixture.php:71"]')).toHaveLength(1)
+  expect(await panel.elements('#detail-tabpanel a[href="vscode://file//tmp/PropsFixture.php:94"]')).toHaveLength(1)
   expect(await panel.detailText()).not.toContain('web.php:12')
 })

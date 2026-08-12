@@ -8,7 +8,6 @@ defineProps<{
 }>()
 
 const reloadOnly = () => router.reload({ only: ['summary'] })
-const reloadExcept = () => router.reload({ except: ['heavy'] })
 const restoreCurrentHistoryUrl = () => {
   setTimeout(() => {
     if (window.history.state) {
@@ -37,7 +36,6 @@ const reloadRapidlyWithHistoryRestores = () => {
     <li v-for="row in heavy?.rows" :key="row.id">{{ row.label }}</li>
   </ul>
   <button type="button" id="reload-only" @click="reloadOnly">Reload only summary</button>
-  <button type="button" id="reload-except" @click="reloadExcept">Reload except heavy</button>
   <button type="button" id="reload-rapid-history-restores" @click="reloadRapidlyWithHistoryRestores">
     Reload rapidly with history restores
   </button>

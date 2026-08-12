@@ -1,8 +1,9 @@
 import { expect, test } from '../drivers/fixtures'
 
 const REDIRECT_ACTION = 'App\\Http\\Controllers\\DevtoolsRedirectController@source'
+const EDITOR_PICKER = 'select[aria-label="Editor for file links"]'
 
-test('it renders route metadata in the Route tab', async ({ app, extension, panel }) => {
+test('it renders route metadata and persists the editor choice', async ({ app, extension, panel }) => {
   await app.open('/devtools')
   await app.clickLink('Navigate')
   await app.waitFor('#user-name')
@@ -31,6 +32,7 @@ test('it renders route metadata in the Route tab', async ({ app, extension, pane
   expect(redirect.route.action).toBe(REDIRECT_ACTION)
 
   await panel.open(tabId)
+  expect(await (await panel.waitFor(EDITOR_PICKER)).getAttribute('value')).toBe('vscode')
 
   await panel.selectRow('/devtools/navigate')
   await panel.openDetailTab('route')
@@ -52,21 +54,6 @@ test('it renders route metadata in the Route tab', async ({ app, extension, pane
 
   await expect.poll(async () => (await panel.elements('#detail-tabpanel a[href^="vscode://"]')).length).toBe(0)
   expect(await panel.detailText()).toContain('DevtoolsRedirectController.php')
-})
-
-const EDITOR_PICKER = 'select[aria-label="Editor for file links"]'
-
-test('it remembers the picked editor across a panel reload', async ({ app, extension, panel }) => {
-  await app.open('/devtools')
-
-  const tabId = await extension.appTabId()
-  await extension.waitForEntries(tabId, (list) => list.length === 1)
-  await panel.open(tabId)
-
-  expect(await (await panel.waitFor(EDITOR_PICKER)).getAttribute('value')).toBe('vscode')
-
-  await panel.selectRow('/devtools')
-  await panel.openDetailTab('route')
   await panel.selectEditor('phpstorm')
 
   const tabUuid = await extension.storedTabUuid(tabId)

@@ -4,10 +4,6 @@ const runsInCI = !!process.env.CI
 const appDir = new URL('./app', import.meta.url).pathname
 
 export default defineConfig({
-  testDir: '.',
-  // Keep CI's artifact path independent from the command's working directory.
-  outputDir: './test-results',
-  testMatch: /.*\.spec\.ts$/,
   globalSetup: './global-setup.ts',
   fullyParallel: true,
   workers: runsInCI ? 4 : undefined,
@@ -17,13 +13,7 @@ export default defineConfig({
   // into it and attaching all happen before a test body starts.
   timeout: 45 * 1000,
   expect: { timeout: 10 * 1000 },
-  // One suite, both browsers. The specs in tests/e2e/shared never name a browser: the project name
-  // picks a driver (see tests/e2e/drivers/fixtures.ts), and Playwright is only the runner.
-  // tests/e2e/firefox holds what only Gecko can do, so nothing in shared/ has to branch on a browser.
-  projects: [
-    { name: 'chromium-selenium', testMatch: /shared\/.*\.spec\.ts$/ },
-    { name: 'firefox', testMatch: /(shared|firefox)\/.*\.spec\.ts$/ },
-  ],
+  projects: [{ name: 'chrome', testDir: './shared' }, { name: 'firefox' }],
   // The extension only captures data when the app runs through the vite dev server: the
   // `inertia()` vite plugin injects the client devtools instrumentation and real source
   // locations at dev time, which a production build strips. So serve the app in dev mode:

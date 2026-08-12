@@ -62,12 +62,6 @@ export function createApp(driver: WebDriver, appHandle: string, readAppTabIds: (
     return await waitForLocated(driver, By.css(selector), `selector "${selector}"`, timeout)
   }
 
-  const elements = async (selector: string): Promise<WebElement[]> => {
-    await show()
-
-    return await driver.findElements(By.css(selector))
-  }
-
   const waitForText = async (selector: string, text: string, timeout = 10_000): Promise<void> => {
     await show()
     await waitForLocatorText(driver, By.css(selector), text, `The element at "${selector}"`, timeout)
@@ -108,7 +102,6 @@ export function createApp(driver: WebDriver, appHandle: string, readAppTabIds: (
     clickButton,
     clickLink,
     closeExtra,
-    elements,
     evaluate,
     hoverLink,
     open,
