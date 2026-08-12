@@ -21,6 +21,7 @@
     }
   },
   "minimum_chrome_version": "116",
+  "incognito": "split",
   "permissions": ["storage", "declarativeNetRequest", "webRequest", "tabs"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "background": {
