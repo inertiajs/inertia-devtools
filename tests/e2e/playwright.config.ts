@@ -1,6 +1,8 @@
 import { defineConfig } from '@playwright/test'
 
 const runsInCI = !!process.env.CI
+const configuredWorkers = Number.parseInt(process.env.E2E_WORKERS ?? '', 10)
+const ciWorkers = Number.isInteger(configuredWorkers) && configuredWorkers > 0 ? configuredWorkers : 4
 const url = 'http://127.0.0.1:13337'
 const appDir = new URL('./app', import.meta.url).pathname
 
@@ -9,7 +11,7 @@ export default defineConfig({
   testMatch: /.*\.spec\.ts$/,
   globalSetup: './global-setup.ts',
   fullyParallel: true,
-  workers: runsInCI ? 4 : undefined,
+  workers: runsInCI ? ciWorkers : undefined,
   retries: runsInCI ? 1 : 0,
   forbidOnly: !!runsInCI,
   // Wider than a Playwright test needs: launching a browser through WebDriver, installing the extension
