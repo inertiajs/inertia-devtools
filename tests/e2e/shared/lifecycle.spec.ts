@@ -88,6 +88,9 @@ test('it recovers after a failed entry fetch when the next ingest succeeds', asy
   const id = initial.__meta.id
 
   await session.openPanel(tabId)
+
+  await expect.poll(async () => (await session.timelineRows()).length).toBe(1)
+
   await session.clickButton('Clear')
   await expect.poll(async () => (await session.entries(tabId)).length).toBe(0)
 
