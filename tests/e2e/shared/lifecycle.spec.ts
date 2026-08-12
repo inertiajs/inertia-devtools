@@ -1,4 +1,3 @@
-import { By, until } from 'selenium-webdriver'
 import { expect, test } from '../drivers/fixtures'
 
 test('it classifies a precognition request and filters the timeline down to it', async ({ session }) => {
@@ -7,8 +6,8 @@ test('it classifies a precognition request and filters the timeline down to it',
   const tabId = await session.appTabId()
   await session.waitForEntries(tabId, (list) => list.length === 1)
 
-  await session.driver.findElement(By.xpath('//button[normalize-space()="Precognition"]')).click()
-  await session.driver.wait(until.elementLocated(By.xpath('//p[@id="precognition-status"][text()="422"]')), 10_000)
+  await session.clickButton('Precognition')
+  await session.waitForText('#precognition-status', '422')
 
   const entries = await session.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.url.includes('/devtools/precognition')),
@@ -38,7 +37,7 @@ test('it records a version mismatch and a server error under their own statuses'
   const tabId = await session.appTabId()
   await session.waitForEntries(tabId, (list) => list.length === 1)
 
-  await session.driver.findElement(By.linkText('Trigger mismatch')).click()
+  await session.click('#trigger')
 
   const afterMismatch = await session.waitForEntries(tabId, (list) => list.some((entry) => entry.__meta.status === 409))
 
@@ -48,7 +47,7 @@ test('it records a version mismatch and a server error under their own statuses'
   expect(mismatch.__meta.redirectLocation).toContain('/devtools')
 
   await session.openApp('/devtools/server-error')
-  await session.driver.findElement(By.css('#trigger')).click()
+  await session.click('#trigger')
 
   const afterError = await session.waitForEntries(tabId, (list) => list.some((entry) => entry.__meta.status >= 500))
 
@@ -74,7 +73,7 @@ test('it clears the timeline and the background buffer from the panel', async ({
 
   await expect.poll(async () => (await session.timelineRows()).length).toBe(1)
 
-  await session.driver.findElement(By.xpath('//button[normalize-space()="Clear"]')).click()
+  await session.clickButton('Clear')
 
   await expect.poll(async () => await session.panelText()).toContain('No entries yet')
   await expect.poll(async () => (await session.entries(tabId)).length).toBe(0)
@@ -89,7 +88,7 @@ test('it recovers after a failed entry fetch when the next ingest succeeds', asy
   const id = initial.__meta.id
 
   await session.openPanel(tabId)
-  await session.driver.findElement(By.xpath('//button[normalize-space()="Clear"]')).click()
+  await session.clickButton('Clear')
   await expect.poll(async () => (await session.entries(tabId)).length).toBe(0)
 
   await session.inApp(
@@ -117,8 +116,8 @@ test('it decodes percent-encoded characters in recorded urls', async ({ session 
   const tabId = await session.appTabId()
   await session.waitForEntries(tabId, (list) => list.length === 1)
 
-  await session.driver.findElement(By.xpath('//button[normalize-space()="Fetch JSON"]')).click()
-  await session.driver.wait(until.elementLocated(By.xpath('//p[@id="json-status"][text()="200"]')), 10_000)
+  await session.clickButton('Fetch JSON')
+  await session.waitForText('#json-status', '200')
 
   await session.waitForEntries(tabId, (list) => list.some((entry) => entry.__meta.url.includes('/devtools/api-json')))
 
@@ -172,8 +171,8 @@ test('it keeps panel broadcasts scoped to the tab the panel was opened for', asy
   const rowsBefore = (await session.timelineRows()).length
 
   await session.backToApp()
-  await session.driver.findElement(By.linkText('Navigate')).click()
-  await session.driver.wait(until.elementLocated(By.css('#user-name')), 10_000)
+  await session.clickLink('Navigate')
+  await session.waitFor('#user-name')
   await session.waitForEntries(tabId, (list) => list.some((entry) => entry.__meta.component === 'Devtools/Navigate'))
 
   await session.toPanel()
@@ -199,10 +198,10 @@ test('it recovers when the interceptor registry appears seconds after the warnin
   expect(await session.devActive(tabId)).toBe(true)
 
   await session.backToApp()
-  await session.driver.findElement(By.linkText('Partial')).click()
+  await session.clickLink('Partial')
   await session.waitForEntries(tabId, (list) => list.some((entry) => entry.__meta.component === 'Devtools/Partial'))
 
-  await session.driver.findElement(By.css('#reload-only')).click()
+  await session.click('#reload-only')
 
   const entries = await session.waitForEntries(
     tabId,

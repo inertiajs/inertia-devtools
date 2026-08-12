@@ -1,14 +1,15 @@
-import { By, until, type WebElement } from 'selenium-webdriver'
 import { expect, test } from '../drivers/fixtures'
 import type { BrowserSession } from '../drivers/session'
+
+type TimelineRow = Awaited<ReturnType<BrowserSession['timelineRows']>>[number]
 
 /**
  * Timeline rows badged as a prefetch consumed exactly once.
  *
  * A row consumed twice reads `consumed 2×`, which still contains the single-consumption text, so
- * the substring match `rowsContaining` does cannot tell the two apart.
+ * the substring match behind `rowsContaining` cannot tell the two apart.
  */
-async function consumedOnceRows(session: BrowserSession): Promise<WebElement[]> {
+async function consumedOnceRows(session: BrowserSession): Promise<TimelineRow[]> {
   const rows = await session.timelineRows()
   const texts = await Promise.all(rows.map(async (row) => await row.getText()))
 
@@ -27,10 +28,10 @@ test('it groups a partial reload under the visit that rendered the page', async 
   expect(initial.__meta.status).toBe(200)
   expect(initial.__meta.url).toContain('/devtools')
 
-  await session.driver.findElement(By.linkText('Partial')).click()
-  await session.driver.wait(until.elementLocated(By.css('#summary-total')), 10_000)
+  await session.clickLink('Partial')
+  await session.waitFor('#summary-total')
 
-  await session.driver.findElement(By.css('#reload-only')).click()
+  await session.click('#reload-only')
 
   const entries = await session.waitForEntries(
     tabId,
@@ -57,8 +58,8 @@ test('it chains a deferred load under its parent and keeps each page snapshot on
 
   await session.waitForDevActive(tabId)
 
-  await session.driver.findElement(By.linkText('Deferred')).click()
-  await session.driver.wait(until.elementLocated(By.css('#lazy-value')), 10_000)
+  await session.clickLink('Deferred')
+  await session.waitFor('#lazy-value')
 
   const entries = await session.waitForEntries(
     tabId,
@@ -100,7 +101,7 @@ test('it records a prefetch, stamps it consumed, and chains the deferred load th
 
   await session.waitForDevActive(tabId)
 
-  await session.hover(await session.driver.findElement(By.linkText('Prefetch')))
+  await session.hoverLink('Prefetch')
 
   const withPrefetch = await session.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.requestType === 'prefetch'),
@@ -111,8 +112,8 @@ test('it records a prefetch, stamps it consumed, and chains the deferred load th
   expect(prefetch.__meta.component).toBe('Devtools/PrefetchTarget')
   expect(prefetch.__meta.consumedAt ?? []).toEqual([])
 
-  await session.driver.findElement(By.linkText('Prefetch')).click()
-  await session.driver.wait(until.elementLocated(By.css('#note')), 10_000)
+  await session.clickLink('Prefetch')
+  await session.waitFor('#note')
 
   const entries = await session.waitForEntries(
     tabId,
@@ -147,8 +148,8 @@ test('it records a redirect and its target as separate roots, with a page only o
 
   await session.waitForDevActive(tabId)
 
-  await session.driver.findElement(By.xpath('//button[normalize-space()="Redirect"]')).click()
-  await session.driver.wait(until.elementLocated(By.css('#from')), 10_000)
+  await session.clickButton('Redirect')
+  await session.waitFor('#from')
 
   const entries = await session.waitForEntries(
     tabId,
@@ -184,7 +185,7 @@ test('it synthesises entries for client-side visits', async ({ session }) => {
 
   await session.waitForDevActive(tabId)
 
-  await session.driver.findElement(By.xpath('//button[normalize-space()="Client push"]')).click()
+  await session.clickButton('Client push')
 
   const afterPush = await session.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.requestType === 'client-visit'),
@@ -198,7 +199,7 @@ test('it synthesises entries for client-side visits', async ({ session }) => {
   expect(push.__meta.status).toBe(0)
   expect(push.propValues).toMatchObject({ clientCounter: 1 })
 
-  await session.driver.findElement(By.xpath('//button[normalize-space()="Client replace"]')).click()
+  await session.clickButton('Client replace')
 
   const afterReplace = await session.waitForEntries(
     tabId,
@@ -224,7 +225,7 @@ test('it groups a state-preserving reload but keeps repeat visits to the same ur
 
   const [root] = await session.waitForEntries(tabId, (list) => list.length === 1)
 
-  await session.driver.findElement(By.xpath('//button[normalize-space()="Reload full"]')).click()
+  await session.clickButton('Reload full')
 
   const afterReload = await session.waitForEntries(tabId, (list) => list.length === 2)
   const reload = afterReload.find((entry) => entry.__meta.id !== root.__meta.id)!
@@ -232,10 +233,10 @@ test('it groups a state-preserving reload but keeps repeat visits to the same ur
   expect(reload.__meta.requestType).toBe('navigate')
   expect(reload.__meta.batchId).toBe(root.__meta.id)
 
-  await session.driver.findElement(By.xpath('//button[normalize-space()="Visit same URL"]')).click()
+  await session.clickButton('Visit same URL')
   await session.waitForEntries(tabId, (list) => list.length === 3)
 
-  await session.driver.findElement(By.xpath('//button[normalize-space()="Visit same URL"]')).click()
+  await session.clickButton('Visit same URL')
 
   const entries = await session.waitForEntries(tabId, (list) => list.length === 4)
   const visits = entries.slice(2)
@@ -251,9 +252,9 @@ test('it keeps every deferred group snapshot on the request that resolved it', a
 
   await session.waitForDevActive(tabId)
 
-  await session.driver.findElement(By.linkText('Deferred groups')).click()
-  await session.driver.wait(until.elementLocated(By.css('#slow-total')), 10_000)
-  await session.driver.wait(until.elementLocated(By.css('#heavy-name')), 10_000)
+  await session.clickLink('Deferred groups')
+  await session.waitFor('#slow-total')
+  await session.waitFor('#heavy-name')
 
   const entries = await session.waitForEntries(
     tabId,
@@ -311,8 +312,8 @@ test('it stamps a tab uuid on a recorded entry and never the tab id', async ({ s
 
   // Asserted on an Inertia visit rather than the first load: the tab header is injected on
   // sub-requests, so the top-level navigation that opened the page can land without one.
-  await session.driver.findElement(By.linkText('Navigate')).click()
-  await session.driver.wait(until.elementLocated(By.css('#user-name')), 10_000)
+  await session.clickLink('Navigate')
+  await session.waitFor('#user-name')
 
   const entries = await session.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.component === 'Devtools/Navigate'),
@@ -348,14 +349,14 @@ test('it does not reparent unrelated traffic to a pending prefetch', async ({ se
 
   await session.waitForDevActive(tabId)
 
-  await session.hover(await session.driver.findElement(By.linkText('Prefetch')))
+  await session.hoverLink('Prefetch')
   await session.waitForEntries(tabId, (list) =>
     list.some(
       (entry) => entry.__meta.component === 'Devtools/PrefetchTarget' && entry.__meta.requestType === 'prefetch',
     ),
   )
 
-  await session.driver.findElement(By.xpath('//button[normalize-space()="Reload greeting"]')).click()
+  await session.clickButton('Reload greeting')
 
   const entries = await session.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.component === 'Devtools/Index' && entry.__meta.requestType === 'partial'),
@@ -429,15 +430,15 @@ test('it keeps an index partial in the index batch and jumps from the cache-hit 
 
   // A partial reload of the index stands in for an infinite-scroll fetch: it shares the index page's
   // batchId with the prefetch below.
-  await session.driver.findElement(By.xpath('//button[normalize-space()="Reload greeting"]')).click()
+  await session.clickButton('Reload greeting')
   await session.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.component === 'Devtools/Index' && entry.__meta.requestType === 'partial'),
   )
 
-  await session.hover(await session.driver.findElement(By.linkText('Prefetch')))
+  await session.hoverLink('Prefetch')
   await session.waitForEntries(tabId, (list) => list.some((entry) => entry.__meta.requestType === 'prefetch'))
 
-  await session.driver.findElement(By.linkText('Prefetch')).click()
+  await session.clickLink('Prefetch')
   await session.waitForEntries(tabId, (list) => list.some((entry) => entry.__meta.requestType === 'cache-hit'))
 
   await session.openPanel(tabId)
@@ -455,7 +456,7 @@ test('it keeps an index partial in the index batch and jumps from the cache-hit 
   expect(partialIndex).toBeLessThan(cacheHitIndex)
 
   await session.selectRow('cache-hit')
-  await session.driver.findElement(By.xpath('//button[normalize-space()="View prefetch"]')).click()
+  await session.clickButton('View prefetch')
 
   await expect
     .poll(async () => {
@@ -474,11 +475,8 @@ test('it captures POST and GET entries in the same buffer', async ({ session }) 
   const tabId = await session.appTabId()
   await session.waitForEntries(tabId, (list) => list.length === 1)
 
-  await session.driver.findElement(By.xpath('//button[normalize-space()="Redirect"]')).click()
-  await session.driver.wait(
-    until.elementLocated(By.xpath('//p[@id="from"][normalize-space()="redirect-source"]')),
-    10_000,
-  )
+  await session.clickButton('Redirect')
+  await session.waitForText('#from', 'redirect-source')
 
   const entries = await session.waitForEntries(
     tabId,
@@ -501,8 +499,8 @@ test('it does not synthesise client visits for post-success history writes durin
   await session.waitForDevActive(tabId)
   await session.waitForEntries(tabId, (list) => list.length === 1)
 
-  await session.driver.findElement(By.linkText('Partial')).click()
-  await session.driver.wait(until.elementLocated(By.css('#summary-total')), 10_000)
+  await session.clickLink('Partial')
+  await session.waitFor('#summary-total')
   await session.waitForEntries(tabId, (list) => list.some((entry) => entry.__meta.component === 'Devtools/Partial'))
 
   await session.inApp(`
@@ -521,7 +519,7 @@ test('it does not synthesise client visits for post-success history writes durin
     return true
   `)
 
-  await session.driver.findElement(By.css('#reload-only')).click()
+  await session.click('#reload-only')
   await session.waitForEntries(
     tabId,
     (list) => list.filter((entry) => entry.__meta.component === 'Devtools/Partial').length === 2,
@@ -531,7 +529,7 @@ test('it does not synthesise client visits for post-success history writes durin
 
   expect((await session.entries(tabId)).some((entry) => entry.__meta.requestType === 'client-visit')).toBe(false)
 
-  await session.driver.findElement(By.css('#reload-rapid-history-restores')).click()
+  await session.click('#reload-rapid-history-restores')
   await session.waitForEntries(
     tabId,
     (list) =>
@@ -553,7 +551,7 @@ test('it forwards the parent-out header as the parent of the next partial visit'
 
   const [initial] = await session.waitForEntries(tabId, (list) => list.length === 1)
 
-  await session.driver.findElement(By.xpath('//button[normalize-space()="Reload greeting"]')).click()
+  await session.clickButton('Reload greeting')
 
   const entries = await session.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.component === 'Devtools/Index' && entry.__meta.requestType === 'partial'),

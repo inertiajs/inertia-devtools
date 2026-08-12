@@ -1,18 +1,18 @@
-import { By, until } from 'selenium-webdriver'
+import { makeEntry } from '../../support'
 import { expect, test } from '../drivers/fixtures'
 
 const REDIRECT_ACTION = 'App\\Http\\Controllers\\DevtoolsRedirectController@source'
 
 test('it renders route metadata in the Route tab', async ({ session }) => {
   await session.openApp('/devtools')
-  await session.driver.findElement(By.linkText('Navigate')).click()
-  await session.driver.wait(until.elementLocated(By.css('#user-name')), 10_000)
+  await session.clickLink('Navigate')
+  await session.waitFor('#user-name')
 
-  await session.driver.findElement(By.linkText('Back')).click()
-  await session.driver.wait(until.elementLocated(By.css('#greeting')), 10_000)
+  await session.clickLink('Back')
+  await session.waitFor('#greeting')
 
-  await session.driver.findElement(By.xpath('//button[normalize-space()="Redirect"]')).click()
-  await session.driver.wait(until.elementLocated(By.css('#from')), 10_000)
+  await session.clickButton('Redirect')
+  await session.waitFor('#from')
 
   const tabId = await session.appTabId()
 
@@ -43,7 +43,7 @@ test('it renders route metadata in the Route tab', async ({ session }) => {
   expect(navigateDetail).toContain('Devtools/Navigate')
   expect(navigateDetail).toContain('Component file')
   expect(navigateDetail).toContain('Render call')
-  expect(await session.driver.findElements(By.css('#detail-tabpanel a[href^="vscode://"]'))).not.toHaveLength(0)
+  expect(await session.elements('#detail-tabpanel a[href^="vscode://"]')).not.toHaveLength(0)
 
   await session.selectRow('/devtools/redirect-source')
   await session.openDetailTab('route')
@@ -75,62 +75,55 @@ test('it builds a file link for every editor scheme and drops the link when set 
   await session.waitForEntries(tabId, (list) => list.length === 1)
   await session.openPanel(tabId)
 
-  await session.appendEntry(tabId, {
-    __meta: {
-      id: 'editor-links',
-      tabUuid: 'synthetic-tab',
-      batchId: null,
-      timestamp: new Date().toISOString(),
-      utime: Date.now() / 1000,
-      method: 'GET',
-      url: 'http://localhost/devtools/editor',
-      component: 'Devtools/EditorLink',
-      requestType: 'navigate',
-      status: 200,
-      serverTimingMs: 1,
-      consumedAt: [],
-    },
-    http: {
-      requestHeaders: {},
-      responseHeaders: {},
-      requestBody: { status: 'empty' },
-      responseBody: { status: 'empty' },
-    },
-    props: {},
-    route: {
-      name: 'devtools.editor',
-      uri: 'devtools/editor',
-      action: 'DevtoolsController@show',
-      actionSource: { file: SOURCE_FILE, line: 12 },
-    },
-    renderSource: { file: '/tmp/routes/web.php', line: 42 },
-    componentPath: '/tmp/EditorLink.vue',
-  })
+  await session.appendEntry(
+    tabId,
+    makeEntry(
+      { id: 'editor-links', url: 'http://localhost/devtools/editor', component: 'Devtools/EditorLink' },
+      {
+        route: {
+          name: 'devtools.editor',
+          uri: 'devtools/editor',
+          action: 'DevtoolsController@show',
+          actionSource: { file: SOURCE_FILE, line: 12 },
+        },
+        renderSource: { file: '/tmp/routes/web.php', line: 42 },
+        componentPath: '/tmp/EditorLink.vue',
+      },
+    ),
+  )
 
   await session.selectRow('Devtools/EditorLink')
   await session.openDetailTab('route')
 
   await expect.poll(async () => await session.detailText()).toContain('DevtoolsController.php:12')
 
-  // Scoped to the action-source link by its own text: the Route tab links the component file and
+  // Scoped to the action-source link by its own label: the Route tab links the component file and
   // the render call from the same entry, and any of the three could come first in the DOM.
-  const link = By.xpath('//*[@id="detail-tabpanel"]//a[contains(., "DevtoolsController.php:12")]')
+  const ACTION_LINK = 'DevtoolsController.php:12'
 
   for (const [scheme, href] of SCHEMES) {
     await session.selectEditor(scheme)
 
     // The literal attribute, not the resolved property: a browser is free to normalise a scheme it
     // does not know, and what the panel wrote is what is under test.
-    await expect.poll(async () => await session.driver.findElement(link).getDomAttribute('href')).toBe(href)
+    await expect.poll(async () => await (await session.detailLink(ACTION_LINK)).getDomAttribute('href')).toBe(href)
   }
 
   await session.selectEditor('off')
 
-  await expect.poll(async () => (await session.driver.findElements(link)).length).toBe(0)
+  // `detailLink` rejects when the label is no longer a link, which is the state under test, so the
+  // rejection is turned into a value rather than left to fail the poll's callback outright.
+  const linked = async (): Promise<boolean> =>
+    await session.detailLink(ACTION_LINK).then(
+      () => true,
+      () => false,
+    )
+
+  await expect.poll(linked).toBe(false)
   expect(await session.detailText()).toContain('DevtoolsController.php:12')
 })
 
-const EDITOR_PICKER = By.css('select[aria-label="Editor for file links"]')
+const EDITOR_PICKER = 'select[aria-label="Editor for file links"]'
 
 test('it remembers the picked editor across a panel reload', async ({ session }) => {
   await session.openApp('/devtools')
@@ -139,7 +132,7 @@ test('it remembers the picked editor across a panel reload', async ({ session })
   await session.waitForEntries(tabId, (list) => list.length === 1)
   await session.openPanel(tabId)
 
-  expect(await session.driver.findElement(EDITOR_PICKER).getAttribute('value')).toBe('vscode')
+  expect(await (await session.waitFor(EDITOR_PICKER)).getAttribute('value')).toBe('vscode')
 
   await session.selectRow('/devtools')
   await session.openDetailTab('route')
@@ -156,5 +149,5 @@ test('it remembers the picked editor across a panel reload', async ({ session })
 
   await session.reloadPanel()
 
-  await expect.poll(async () => await session.driver.findElement(EDITOR_PICKER).getAttribute('value')).toBe('phpstorm')
+  await expect.poll(async () => await (await session.waitFor(EDITOR_PICKER)).getAttribute('value')).toBe('phpstorm')
 })

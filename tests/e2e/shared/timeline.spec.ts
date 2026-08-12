@@ -1,11 +1,9 @@
-import { By, until } from 'selenium-webdriver'
 import { expect, test } from '../drivers/fixtures'
-import type { BrowserSession } from '../drivers/session'
 
 test('it records a visit and renders it on the timeline', async ({ session }) => {
   await session.openApp('/devtools')
-  await session.driver.findElement(By.linkText('Navigate')).click()
-  await session.driver.wait(until.elementLocated(By.css('#user-name')), 10_000)
+  await session.clickLink('Navigate')
+  await session.waitFor('#user-name')
 
   const tabId = await session.appTabId()
   const entries = await session.waitForEntries(tabId, (list) => list.length === 2)
@@ -25,14 +23,11 @@ test('it records a visit and renders it on the timeline', async ({ session }) =>
 test('it filters the timeline and opens a row detail', async ({ session }) => {
   await session.openApp('/devtools')
 
-  await session.driver.findElement(By.xpath('//button[normalize-space()="Submit validation error"]')).click()
-  await session.driver.wait(
-    until.elementLocated(By.xpath('//p[@id="name-error"][normalize-space()="The name field is required."]')),
-    10_000,
-  )
+  await session.clickButton('Submit validation error')
+  await session.waitForText('#name-error', 'The name field is required.')
 
-  await session.driver.findElement(By.linkText('Navigate')).click()
-  await session.driver.wait(until.elementLocated(By.css('#user-name')), 10_000)
+  await session.clickLink('Navigate')
+  await session.waitFor('#user-name')
 
   const tabId = await session.appTabId()
   await session.waitForEntries(tabId, (list) => list.length === 3)
@@ -128,8 +123,8 @@ test('it renders a redirect badge pointing at the redirect target', async ({ ses
   const tabId = await session.appTabId()
   await session.waitForEntries(tabId, (list) => list.length === 1)
 
-  await session.driver.findElement(By.xpath('//button[normalize-space()="Redirect"]')).click()
-  await session.driver.wait(until.elementLocated(By.css('#from')), 10_000)
+  await session.clickButton('Redirect')
+  await session.waitFor('#from')
   await session.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.url.includes('/devtools/redirect-source')),
   )
@@ -148,14 +143,8 @@ test('it flags a slow request and empties out when a search matches nothing', as
   const tabId = await session.appTabId()
   await session.waitForEntries(tabId, (list) => list.length === 1)
 
-  await session.driver.findElement(By.linkText('Slow')).click()
-
-  // Located by text rather than waited on as an element: the visit re-renders the page, and an
-  // element handle taken before that swap is stale by the time the wait reads it.
-  await session.driver.wait(
-    until.elementLocated(By.xpath('//p[@id="greeting"][normalize-space()="slow response"]')),
-    10_000,
-  )
+  await session.clickLink('Slow')
+  await session.waitForText('#greeting', 'slow response')
 
   const entries = await session.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.url.includes('/devtools/slow')),
@@ -167,11 +156,7 @@ test('it flags a slow request and empties out when a search matches nothing', as
 
   await session.openPanel(tabId)
 
-  // Located in one call rather than off a held row handle: rows are re-rendered as entries stream
-  // in, and an element found a moment earlier is stale by the time it is asked anything.
-  const turtle = By.xpath('//li[@role="option"][contains(., "/devtools/slow")]//*[@aria-label="slow"]')
-
-  await expect.poll(async () => (await session.driver.findElements(turtle)).length).toBe(1)
+  await expect.poll(async () => (await session.rowIcon('/devtools/slow', 'slow')).length).toBe(1)
 
   await (await session.searchInput()).sendKeys('zzz-no-such-entry')
 
@@ -185,11 +170,8 @@ test('it badges a row whose response carried validation errors', async ({ sessio
   const tabId = await session.appTabId()
   await session.waitForEntries(tabId, (list) => list.length === 1)
 
-  await session.driver.findElement(By.xpath('//button[normalize-space()="Submit validation error"]')).click()
-  await session.driver.wait(
-    until.elementLocated(By.xpath('//p[@id="name-error"][normalize-space()="The name field is required."]')),
-    10_000,
-  )
+  await session.clickButton('Submit validation error')
+  await session.waitForText('#name-error', 'The name field is required.')
 
   await session.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.url.includes('/devtools/validation-error')),
@@ -213,15 +195,9 @@ test('it shows a static clock time with a full timestamp tooltip', async ({ sess
 
   // The clock is the last line of the row's last column. It carries no id, and the wall-clock
   // format is what proves the right span was found: the duration above it never looks like a time.
-  const clock = By.xpath('//li[@role="option"]/span[last()]/span[last()]')
+  const CLOCK = 'li[role="option"] > span:last-child > span:last-child'
 
-  // Read through `findElements` rather than `findElement`: the row arrives on a broadcast after the
-  // panel hydrates, and a poll whose callback throws on a missing node fails instead of retrying.
-  const clockText = async (): Promise<string> => {
-    const [line] = await session.driver.findElements(clock)
-
-    return line ? await line.getText() : ''
-  }
+  const clockText = async (): Promise<string> => await (await session.waitFor(CLOCK)).getText()
 
   await expect.poll(clockText).toMatch(/^\d{1,2}:\d{2}:\d{2}$/)
 
@@ -230,7 +206,7 @@ test('it shows a static clock time with a full timestamp tooltip', async ({ sess
   await new Promise((wait) => setTimeout(wait, 1500))
 
   expect(await clockText()).toBe(shown)
-  expect(await session.driver.findElement(clock).getAttribute('title')).toMatch(/\d/)
+  expect(await (await session.waitFor(CLOCK)).getAttribute('title')).toMatch(/\d/)
 })
 
 test('it hides the navigate label in the timeline subtitle while keeping partial labels visible', async ({
@@ -241,19 +217,16 @@ test('it hides the navigate label in the timeline subtitle while keeping partial
   const tabId = await session.appTabId()
   await session.waitForEntries(tabId, (list) => list.length === 1)
 
-  await session.driver.findElement(By.linkText('Navigate')).click()
-  await session.driver.wait(until.elementLocated(By.xpath('//p[@id="user-name"][normalize-space()="John"]')), 10_000)
+  await session.clickLink('Navigate')
+  await session.waitForText('#user-name', 'John')
 
-  await session.driver.findElement(By.linkText('Back')).click()
-  await session.driver.wait(
-    until.elementLocated(By.xpath('//p[@id="greeting"][normalize-space()="Hello from devtools"]')),
-    10_000,
-  )
+  await session.clickLink('Back')
+  await session.waitForText('#greeting', 'Hello from devtools')
 
-  await session.driver.findElement(By.linkText('Partial')).click()
-  await session.driver.wait(until.elementLocated(By.xpath('//p[@id="summary-total"][normalize-space()="5"]')), 10_000)
+  await session.clickLink('Partial')
+  await session.waitForText('#summary-total', '5')
 
-  await session.driver.findElement(By.css('#reload-only')).click()
+  await session.click('#reload-only')
 
   await session.waitForEntries(
     tabId,
@@ -264,22 +237,8 @@ test('it hides the navigate label in the timeline subtitle while keeping partial
 
   await session.openPanel(tabId)
 
-  await expect.poll(async () => await subtitles(session, '/devtools/navigate')).toEqual(['Devtools/Navigate'])
+  await expect.poll(async () => await session.subtitles('/devtools/navigate')).toEqual(['Devtools/Navigate'])
   await expect
-    .poll(async () => await subtitles(session, '/devtools/partial'))
+    .poll(async () => await session.subtitles('/devtools/partial'))
     .toEqual(['Devtools/Partial', 'Devtools/Partial · partial'])
 })
-
-/**
- * The subtitle line of every timeline row whose URL reads exactly `path`, in timeline order.
- *
- * Anchored on the row's own URL text and walked to the line under it, because neither span carries
- * an id and the Tailwind classes around them are not a contract.
- */
-async function subtitles(session: BrowserSession, path: string): Promise<string[]> {
-  const lines = await session.driver.findElements(
-    By.xpath(`//li[@role="option"]//span[normalize-space()="${path}"]/following-sibling::span[1]/span[1]`),
-  )
-
-  return await Promise.all(lines.map((line) => line.getText()))
-}

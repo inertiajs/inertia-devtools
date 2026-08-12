@@ -8,6 +8,7 @@
     "manifest.config.ts",
     "vite.config.ts"
   ],
+  "exclude": ["tests/e2e/app"],
   "compilerOptions": {
     "lib": ["DOM", "DOM.Iterable", "ES2022"],
     "target": "ES2022",

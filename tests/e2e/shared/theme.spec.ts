@@ -18,7 +18,8 @@ test('it cycles theme modes and persists the choice across a panel reload', asyn
   await session.waitForEntries(tabId, (list) => list.length === 1)
   await session.openPanel(tabId)
 
-  const theme = async (): Promise<string | null> => await (await session.waitFor(THEME_TOGGLE)).getAttribute('aria-label')
+  const theme = async (): Promise<string | null> =>
+    await (await session.waitFor(THEME_TOGGLE)).getAttribute('aria-label')
 
   const cycle = async (): Promise<void> => await session.click(THEME_TOGGLE)
 

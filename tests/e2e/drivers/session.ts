@@ -128,6 +128,16 @@ export abstract class BrowserSession {
   }
 
   /**
+   * Query by selector without asserting that a match exists.
+   *
+   * Absence is a real assertion in the panel, and a helper that throws on no match cannot be used
+   * inside `expect.poll`: Playwright retries failed expectations there, not callback exceptions.
+   */
+  elements(selector: string): Promise<WebElement[]> {
+    return this.driver.findElements(By.css(selector))
+  }
+
+  /**
    * Wait until the element at `selector` reads exactly `text`.
    *
    * What proves a navigation landed rather than merely started, so it is worth waiting on the text
@@ -468,6 +478,36 @@ export abstract class BrowserSession {
   }
 
   /**
+   * Query a row badge only inside the row that identifies the entry under test.
+   *
+   * Timeline badges repeat across rows, and holding a row element while broadcasts re-render the
+   * list can make a spec fail on a stale handle instead of checking the intended row.
+   */
+  rowIcon(rowText: string, ariaLabel: string): Promise<WebElement[]> {
+    return this.driver.findElements(
+      By.xpath(
+        `//li[@role="option"][contains(., ${xpathLiteral(rowText)})]//*[@aria-label=${xpathLiteral(ariaLabel)}]`,
+      ),
+    )
+  }
+
+  /**
+   * Read the subtitle line for timeline rows whose URL is exactly `path`.
+   *
+   * The URL line and subtitle line have no ids, and their classes are layout details, so the only
+   * stable assertion walks from the row's own URL text to its subtitle sibling.
+   */
+  async subtitles(path: string): Promise<string[]> {
+    const lines = await this.driver.findElements(
+      By.xpath(
+        `//li[@role="option"]//span[normalize-space()=${xpathLiteral(path)}]/following-sibling::span[1]/span[1]`,
+      ),
+    )
+
+    return await Promise.all(lines.map((line) => line.getText()))
+  }
+
+  /**
    * Select the first timeline row whose text contains `text`.
    *
    * Rows arrive on a broadcast after the panel has hydrated, so the row is waited for rather than
@@ -499,6 +539,16 @@ export abstract class BrowserSession {
   /** The detail pane's text alone, so a match can never come from the timeline beside it. */
   async detailText(): Promise<string> {
     return await this.driver.findElement(By.css('#detail-tabpanel')).getText()
+  }
+
+  /**
+   * Find a detail-pane link by the source label it renders.
+   *
+   * Source sections can render several links for one entry, and CSS cannot target the action or prop
+   * link by its visible file label.
+   */
+  detailLink(text: string): Promise<WebElement> {
+    return this.driver.findElement(By.xpath(`//*[@id="detail-tabpanel"]//a[contains(., ${xpathLiteral(text)})]`))
   }
 
   searchInput(): Promise<WebElement> {
