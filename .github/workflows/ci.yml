@@ -95,13 +95,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Chrome holds up at 4 workers; Firefox starts lower because each worker fans out into
-        # browser, content and debugger processes. Tune these from observed CI times.
+        # CI runs one browser project per job, so worker count is a per-job knob. Both projects
+        # currently stay at 4 workers. Lowering Firefox to 2 was measured and only moved within
+        # runner noise, so change these numbers only from observed job times.
         include:
           - project: chromium-selenium
             workers: 4
           - project: firefox
-            workers: 2
+            workers: 4
 
     steps:
       - name: Checkout

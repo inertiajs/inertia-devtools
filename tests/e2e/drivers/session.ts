@@ -14,16 +14,32 @@ export const APP_URL = 'http://127.0.0.1:13337'
 export abstract class BrowserSession {
   protected panelHandle: string | null = null
 
+  private helperHandle: string | null = null
+
+  /**
+   * The window the driver is on, mirrored so a state read can put it back for free.
+   *
+   * Every switch this class makes goes through `switchTo`, and nothing outside it drives the window
+   * list, so the mirror cannot drift. Asking the browser instead would add a round trip to every
+   * single buffer read, and `waitForEntries` makes ten of those a second.
+   */
+  private currentHandle: string | null = null
+
   protected constructor(
     readonly driver: WebDriver,
     protected appHandle: string,
   ) {}
 
   /**
-   * Open an extension page in a new tab and return its window handle.
+   * Open an extension page in a window of its own and return its handle.
    *
    * Chrome navigates to the `chrome-extension://` URL. Firefox cannot: no driver may navigate to a
-   * `moz-extension://` URL, so there the extension opens the tab and the driver switches to it.
+   * `moz-extension://` URL, so there the extension opens the window and the driver switches to it.
+   *
+   * A window rather than a tab, because a tab would take the app's place as the active tab of the
+   * app's window. Every read of background state switches to an extension page, `waitForEntries`
+   * does that ten times a second, and a hidden tab has its timers clamped to one second in both
+   * engines: the app would spend a test being throttled by the harness watching it.
    */
   protected abstract openExtensionPage(path: string): Promise<string>
 
@@ -36,6 +52,69 @@ export abstract class BrowserSession {
    * geckodriver has none at all and the messages come off the debugging protocol instead.
    */
   abstract consoleWarnings(): Promise<string[]>
+
+  /**
+   * Finish starting the session: open the extension page every state read runs in, then wait for the
+   * background.
+   *
+   * The page is opened once and kept for the life of the browser. Opening one per read is what made
+   * Firefox slow (an RDP `windows.create`, a 100ms-granularity poll for the new handle and a wait on
+   * `typeof browser`, on every iteration of every poll loop) and what let the harness throttle the
+   * app it was watching.
+   */
+  protected async prepare(): Promise<void> {
+    await this.openHelperPage()
+    await this.waitForBackground()
+    await this.backToApp()
+  }
+
+  /**
+   * Put the browser back to what a freshly launched one looks like, without launching one.
+   *
+   * The session outlives a test now, so everything a test can leave behind has to be named here. The
+   * app tab is replaced rather than navigated: removing it drops that tab's entry buffer, page
+   * states and origin in the background, and the tab that takes its place has a new tab id, so it
+   * also gets a new tab uuid and a new `ui-prefs-<uuid>` key.
+   *
+   * What a tab does not carry is cleared with it. In `storage.local` that is `devtools-hosts` (which
+   * scopes the tab-header rule, and so decides whether an origin is stamped at all), `ui-global-prefs`
+   * (theme and editor, the state `theme.spec.ts` asserts starts at `system`), `ui-prefs` for a panel
+   * that never resolved a uuid, and the `tab-<id>` uuids of tabs that are already gone. The wipe runs
+   * before the fresh tab exists, so the uuid minted for it survives.
+   *
+   * Two things deliberately survive: `storage.session`, which only the real devtools page writes and
+   * nothing here opens, and the background's in-memory host cache, which no message can clear and
+   * which only ever makes a header more likely to be stamped than on a fresh profile.
+   */
+  async reset(): Promise<void> {
+    await this.closeAllButHelperPage()
+    await this.inExtensionPage(`extension.storage.local.clear().then(() => resolve(), fail)`)
+    await this.openAppWindow()
+    await this.forgetConsole()
+    await this.waitForBackground()
+  }
+
+  /**
+   * Can this browser host another test, or has global state made that a lie?
+   *
+   * `tests/e2e/firefox/host-access.spec.ts` revokes the add-on's host permission for good: granting
+   * it back needs a doorhanger no driver can answer, and without it no content script runs, so every
+   * later test in the worker would fail on an empty buffer. The fixture relaunches instead.
+   */
+  async isReusable(): Promise<boolean> {
+    return await this.inExtensionPage<boolean>(
+      `extension.permissions.contains({ origins: ['http://*/*'] }).then(resolve, fail)`,
+    ).catch(() => false)
+  }
+
+  /**
+   * Forget console output recorded before this point.
+   *
+   * Only Chrome needs it: its log is session-wide and drains on read, so warnings from one test are
+   * still there for the next. Firefox reads the console cache of the app document, which the fresh
+   * tab in `reset` replaces on its own.
+   */
+  protected async forgetConsole(): Promise<void> {}
 
   /** What the driver actually connected to, so a spec can prove which browser it ran in. */
   async browser(): Promise<{ name: string; version: string }> {
@@ -50,7 +129,49 @@ export abstract class BrowserSession {
   }
 
   async backToApp(): Promise<void> {
-    await this.driver.switchTo().window(this.appHandle)
+    await this.switchTo(this.appHandle)
+  }
+
+  private async switchTo(handle: string): Promise<void> {
+    await this.driver.switchTo().window(handle)
+    this.currentHandle = handle
+  }
+
+  /** Give the next test a tab of its own, which is what earns it a new tab id and tab uuid. */
+  private async openAppWindow(): Promise<void> {
+    await this.driver.switchTo().newWindow('window')
+
+    this.appHandle = await this.driver.getWindowHandle()
+    this.currentHandle = this.appHandle
+  }
+
+  /**
+   * Close everything a test opened, leaving only the extension page reads run in.
+   *
+   * That page is never closed, and not only to keep it: closing the last window would take the
+   * browser down with it.
+   */
+  private async closeAllButHelperPage(): Promise<void> {
+    const helper = await this.helperPage()
+
+    for (const handle of await this.driver.getAllWindowHandles()) {
+      if (handle === helper) {
+        continue
+      }
+
+      try {
+        await this.switchTo(handle)
+        await this.driver.close()
+      } catch {
+        // The window is already gone, which is the state this was trying to reach.
+      }
+
+      this.currentHandle = null
+    }
+
+    this.panelHandle = null
+
+    await this.switchTo(helper)
   }
 
   /**
@@ -181,70 +302,55 @@ export abstract class BrowserSession {
   }
 
   /**
-   * Evaluate in the open panel, where the extension APIs live.
+   * Evaluate in the session's extension page, where the extension APIs live.
    *
    * This is what replaces `serviceWorker.evaluate`. It reaches the same state through the messages
    * the panel itself uses, which works on a Chrome service worker and a Firefox event page alike,
-   * and needs neither CDP nor RDP. Hosting the call in the panel keeps an extra tab from appearing
-   * mid-test, and the driver is left on the window it started on: a helper that only reads state
-   * must never move the driver off the panel, or a DOM assertion after it silently queries the app.
+   * and needs neither CDP nor RDP.
+   *
+   * The page is a `popup.html` of its own rather than the panel under test, which is what lets a
+   * broadcast be posted from here at all: `runtime.sendMessage` skips its own sender, so a panel that
+   * posted one would be the single context that never heard it. The driver is put back on the window
+   * it came from, because a read that quietly moves it turns the next DOM assertion into one against
+   * the wrong document.
    */
-  private async inPanel<T>(body: string): Promise<T> {
-    const panel = this.panelHandle
-
-    if (!panel) {
-      return await this.inThrowawayPage(body)
-    }
-
-    const current = await this.driver.getWindowHandle()
-
-    try {
-      await this.driver.switchTo().window(panel)
-    } catch {
-      // The panel tab died some other way (a crash, or a spec closing its window). Keeping the
-      // handle would make every later read switch to a dead window, and `waitForBackground`'s catch
-      // would turn 20s of `NoSuchWindowError` into "the background never answered".
-      this.panelHandle = null
-
-      return await this.inThrowawayPage(body)
-    }
+  private async inExtensionPage<T>(body: string): Promise<T> {
+    const previous = this.currentHandle ?? (await this.driver.getWindowHandle())
+    const helper = await this.helperPage()
 
     try {
       return await this.evaluateInExtensionPage<T>(body)
     } finally {
-      if (current !== panel) {
-        await this.driver.switchTo().window(current)
+      if (previous !== helper) {
+        await this.switchTo(previous)
       }
     }
   }
 
-  /**
-   * Evaluate in an extension page opened for this one call.
-   *
-   * The only host available before `openPanel`, and the only correct host for anything the panel
-   * itself has to hear: `runtime.sendMessage` skips its own sender.
-   */
-  private async inThrowawayPage<T>(body: string): Promise<T> {
-    const current = await this.driver.getWindowHandle()
-    const host = await this.openExtensionPage('popup/popup.html')
-
-    await this.driver.switchTo().window(host)
-
-    try {
-      return await this.evaluateInExtensionPage<T>(body)
-    } finally {
-      // A throw above must not strand the tab, and `waitForBackground` retries this every 100ms, so
-      // one broken extension page would otherwise bury the browser in popups. Only the close may
-      // fail quietly: after it the session has no current window, so a swallowed switch-back
-      // failure resurfaces as "no such window" in whatever command runs next.
+  /** Switch to the session's extension page, opening a replacement if it is gone. */
+  private async helperPage(): Promise<string> {
+    if (this.helperHandle) {
       try {
-        await this.driver.close()
-      } catch {
-        // The tab is already gone, which is the state this was trying to reach.
-      }
+        await this.switchTo(this.helperHandle)
 
-      await this.driver.switchTo().window(current)
+        return this.helperHandle
+      } catch {
+        // The window died some other way (a crash, or a browser that closed it with its last tab).
+        // Keeping the handle would make every later read switch to a dead window, and
+        // `waitForBackground`'s catch would turn 20s of `NoSuchWindowError` into "the background
+        // never answered".
+        this.helperHandle = null
+      }
     }
+
+    return await this.openHelperPage()
+  }
+
+  private async openHelperPage(): Promise<string> {
+    this.helperHandle = await this.openExtensionPage('popup/popup.html')
+    this.currentHandle = this.helperHandle
+
+    return this.helperHandle
   }
 
   /**
@@ -283,7 +389,7 @@ export abstract class BrowserSession {
     const deadline = Date.now() + timeout
 
     while (Date.now() < deadline) {
-      const alive = await this.inPanel<boolean>(
+      const alive = await this.inExtensionPage<boolean>(
         `extension.runtime.sendMessage({ type: 'panel:hydrate', tabId: -1 }).then(() => resolve(true), () => resolve(false))`,
       ).catch(() => false)
 
@@ -310,6 +416,9 @@ export abstract class BrowserSession {
     await this.driver.get(`${APP_URL}${path}`)
 
     const handle = await this.driver.getWindowHandle()
+
+    this.currentHandle = handle
+
     const tabId = (await this.appTabIds()).find((candidate) => !before.includes(candidate))
 
     if (tabId === undefined) {
@@ -321,13 +430,14 @@ export abstract class BrowserSession {
 
   /** Close a tab and leave the driver back on the first app tab. */
   async closeTab(handle: string): Promise<void> {
-    await this.driver.switchTo().window(handle)
+    await this.switchTo(handle)
     await this.driver.close()
+    this.currentHandle = null
     await this.backToApp()
   }
 
   private async appTabIds(): Promise<number[]> {
-    return await this.inPanel(
+    return await this.inExtensionPage(
       `extension.tabs
          .query({})
          .then(
@@ -339,7 +449,7 @@ export abstract class BrowserSession {
 
   /** The tab id the recorder keys every entry on. */
   async appTabId(): Promise<number> {
-    const tabs = await this.inPanel<Array<{ id: number; url: string }>>(
+    const tabs = await this.inExtensionPage<Array<{ id: number; url: string }>>(
       `extension.tabs.query({}).then((tabs) => resolve(tabs.map((tab) => ({ id: tab.id, url: tab.url }))), fail)`,
     )
 
@@ -353,7 +463,7 @@ export abstract class BrowserSession {
   }
 
   private async hydrate(tabId: number): Promise<{ entries: Entry[]; evicted: number; devActive: boolean | null }> {
-    return await this.inPanel(
+    return await this.inExtensionPage(
       `extension.runtime.sendMessage({ type: 'panel:hydrate', tabId: ${tabId} }).then(resolve, fail)`,
     )
   }
@@ -371,7 +481,7 @@ export abstract class BrowserSession {
   }
 
   async pageStates(tabId: number): Promise<Record<string, PageStateSnapshot>> {
-    const { pageStates } = await this.inPanel<{ pageStates: Record<string, PageStateSnapshot> }>(
+    const { pageStates } = await this.inExtensionPage<{ pageStates: Record<string, PageStateSnapshot> }>(
       `extension.runtime.sendMessage({ type: 'panel:hydrate-page-state', tabId: ${tabId} }).then(resolve, fail)`,
     )
 
@@ -385,7 +495,7 @@ export abstract class BrowserSession {
    * this would be the one context that never heard it.
    */
   async appendEntry(tabId: number, entry: Entry): Promise<void> {
-    await this.inThrowawayPage(
+    await this.inExtensionPage(
       `extension.runtime
          .sendMessage({ type: 'entry:appended', tabId: ${tabId}, entry: ${JSON.stringify(entry)} })
          .catch(() => {})
@@ -395,11 +505,11 @@ export abstract class BrowserSession {
 
   /** Read raw `storage.local` keys, which is where the panel persists what a reload has to survive. */
   async storedValues(keys: string[]): Promise<Record<string, unknown>> {
-    return await this.inPanel(`extension.storage.local.get(${JSON.stringify(keys)}).then(resolve, fail)`)
+    return await this.inExtensionPage(`extension.storage.local.get(${JSON.stringify(keys)}).then(resolve, fail)`)
   }
 
   async storedTabUuid(tabId: number): Promise<string | null> {
-    return await this.inPanel(
+    return await this.inExtensionPage(
       `extension.storage.local
          .get('tab-${tabId}')
          .then((stored) => resolve(stored['tab-${tabId}'] ?? null), fail)`,
@@ -430,9 +540,11 @@ export abstract class BrowserSession {
     throw new Error(`The buffer for tab ${tabId} never matched, it holds ${latest.length} entries`)
   }
 
-  /** Open the panel in its own tab and leave the driver on it. */
+  /** Open the panel in a window of its own and leave the driver on it. */
   async openPanel(tabId: number): Promise<void> {
     this.panelHandle = await this.openExtensionPage(`panel/panel.html?tabId=${tabId}`)
+    this.currentHandle = this.panelHandle
+
     await this.waitForPanelRender()
   }
 
@@ -442,7 +554,7 @@ export abstract class BrowserSession {
     }
 
     try {
-      await this.driver.switchTo().window(this.panelHandle)
+      await this.switchTo(this.panelHandle)
     } catch (error) {
       this.panelHandle = null
 

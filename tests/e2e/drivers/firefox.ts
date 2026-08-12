@@ -72,7 +72,7 @@ export class FirefoxSession extends BrowserSession {
       const session = new FirefoxSession(driver, await driver.getWindowHandle(), client, background, profileDir)
 
       await driver.manage().setTimeouts({ pageLoad: 20_000, script: 10_000 })
-      await session.waitForBackground()
+      await session.prepare()
 
       return session
     } catch (error) {
@@ -85,16 +85,16 @@ export class FirefoxSession extends BrowserSession {
   }
 
   /**
-   * Let the extension open its own page, then switch to that tab.
+   * Let the extension open its own page, then switch to that window.
    *
    * This is the one place Firefox needs RDP for a plain UI test: no driver may navigate to a
    * `moz-extension://` URL (geckodriver answers `UnsupportedOperationError`, Playwright hangs), and
-   * opening the tab from privileged chrome JS needs a flag geckodriver refuses to pass on.
+   * opening the page from privileged chrome JS needs a flag geckodriver refuses to pass on.
    */
   protected async openExtensionPage(path: string): Promise<string> {
     const known = await this.driver.getAllWindowHandles()
 
-    await evalAsync(this.background, `browser.tabs.create({ url: browser.runtime.getURL('${path}') })`)
+    await evalAsync(this.background, `browser.windows.create({ url: browser.runtime.getURL('${path}') })`)
 
     for (let attempt = 0; attempt < 100; attempt++) {
       const handles = await this.driver.getAllWindowHandles()

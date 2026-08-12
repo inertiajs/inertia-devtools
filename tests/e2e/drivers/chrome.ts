@@ -60,7 +60,7 @@ export class ChromeSession extends BrowserSession {
     try {
       const session = new ChromeSession(driver, await driver.getWindowHandle(), unpackedExtensionId(extensionPath))
       await driver.manage().setTimeouts({ pageLoad: 20_000, script: 10_000 })
-      await session.waitForBackground()
+      await session.prepare()
 
       return session
     } catch (error) {
@@ -71,10 +71,26 @@ export class ChromeSession extends BrowserSession {
   }
 
   protected async openExtensionPage(path: string): Promise<string> {
-    await this.driver.switchTo().newWindow('tab')
+    await this.driver.switchTo().newWindow('window')
     await this.driver.get(`chrome-extension://${this.extensionId}/${path}`)
 
     return await this.driver.getWindowHandle()
+  }
+
+  /**
+   * Drop what the log holds and what was already read from it.
+   *
+   * The log is one stream for the whole browser, so a session that outlives a test would otherwise
+   * hand the next test the previous test's warnings. Reading is what drains it.
+   */
+  protected async forgetConsole(): Promise<void> {
+    await this.driver
+      .manage()
+      .logs()
+      .get(logging.Type.BROWSER)
+      .catch(() => [])
+
+    this.warnings.length = 0
   }
 
   /** Reading the log drains it, so what has been read once is kept for the next caller. */
