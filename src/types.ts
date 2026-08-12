@@ -163,12 +163,3 @@ export type RuntimeBroadcast =
     }
   | { type: 'request:active'; tabId: number; active: boolean }
   | { type: 'dev:status'; tabId: number; active: boolean }
-
-export type DevToolsTestHooks = {
-  getBuffer: (tabId: number) => Entry[]
-  getOrigin: (tabId: number) => string | null
-  getPageStates: (tabId: number) => Record<string, PageStateSnapshot>
-  clearAll: () => void
-  ingest: (tabId: number, origin: string, id: string) => Promise<void>
-  forgetHosts: () => Promise<void>
-}

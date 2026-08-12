@@ -2,8 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Builder } from 'selenium-webdriver'
-import { Options } from 'selenium-webdriver/firefox.js'
+import { Builder, type WebDriver } from 'selenium-webdriver'
+import { Driver, Options } from 'selenium-webdriver/firefox.js'
 import { attachToBackground, type ConsoleEval, evalAsync, freePorts, Rdp, tabConsoleMessages } from './rdp'
 import { APP_URL, BrowserSession } from './session'
 
@@ -17,8 +17,11 @@ export const ADDON_ID = 'devtools@inertiajs.com'
 const EXTENSION_UUID = 'f7c0d9e2-3a41-4b58-9e6c-1d2f3a4b5c6d'
 
 export class FirefoxSession extends BrowserSession {
+  private readonly warningKeys = new Set<string>()
+  private readonly warnings: string[] = []
+
   private constructor(
-    driver: ConstructorParameters<typeof BrowserSession>[0],
+    driver: WebDriver,
     appHandle: string,
     readonly rdp: Rdp,
     readonly background: ConsoleEval,
@@ -34,23 +37,24 @@ export class FirefoxSession extends BrowserSession {
     const profileDir = await mkdtemp(join(tmpdir(), 'inertia-devtools-firefox-'))
 
     const options = new Options()
-      // Selenium Manager downloads and caches a real Firefox for this. Playwright's bundled Firefox
-      // must not be used: that build does not inject extension content scripts, so entries still
-      // arrive off `webRequest` while page state stays empty and every visitId and batchId is null,
-      // which reads as a green suite over a half-dead recorder.
-      .setBrowserVersion('stable')
-      .setProfile(profileDir)
-      .setPreference('devtools.debugger.remote-enabled', true)
-      .setPreference('devtools.debugger.prompt-connection', false)
-      .setPreference('devtools.chrome.enabled', true)
-      .setPreference('extensions.webextensions.uuids', JSON.stringify({ [ADDON_ID]: EXTENSION_UUID }))
-      .addArguments('-start-debugger-server', String(debuggerPort))
+
+    // Selenium Manager downloads and caches a real Firefox for this. Playwright's bundled Firefox
+    // must not be used: that build does not inject extension content scripts, so entries still
+    // arrive off `webRequest` while page state stays empty and every visitId and batchId is null,
+    // which reads as a green suite over a half-dead recorder.
+    options.setBrowserVersion('stable')
+    options.setProfile(profileDir)
+    options.setPreference('devtools.debugger.remote-enabled', true)
+    options.setPreference('devtools.debugger.prompt-connection', false)
+    options.setPreference('devtools.chrome.enabled', true)
+    options.setPreference('extensions.webextensions.uuids', JSON.stringify({ [ADDON_ID]: EXTENSION_UUID }))
+    options.addArguments('-start-debugger-server', String(debuggerPort))
 
     if (process.env.HEADED !== '1') {
       options.addArguments('-headless')
     }
 
-    const driver = await new Builder().forBrowser('firefox').setFirefoxOptions(options).build()
+    const driver = (await new Builder().forBrowser('firefox').setFirefoxOptions(options).build()) as Driver
 
     // Everything below can fail with the browser already up, and the fixture only reaches `stop()`
     // for a session that was returned. Firefox has the most ways to get here: the add-on install, the
@@ -67,6 +71,7 @@ export class FirefoxSession extends BrowserSession {
       const background = await attachToBackground(client, ADDON_ID)
       const session = new FirefoxSession(driver, await driver.getWindowHandle(), client, background, profileDir)
 
+      await driver.manage().setTimeouts({ pageLoad: 20_000, script: 10_000 })
       await session.waitForBackground()
 
       return session
@@ -119,12 +124,25 @@ export class FirefoxSession extends BrowserSession {
   async consoleWarnings(): Promise<string[]> {
     const messages = await tabConsoleMessages(this.rdp, APP_URL)
 
-    return messages.filter((message) => message.level === 'warn').map((message) => message.text)
+    for (const message of messages) {
+      if (message.level !== 'warn' || this.warningKeys.has(message.key)) {
+        continue
+      }
+
+      this.warningKeys.add(message.key)
+      this.warnings.push(message.text)
+    }
+
+    return this.warnings
   }
 
   async stop(): Promise<void> {
     this.rdp.close()
-    await this.driver.quit()
-    await rm(this.profileDir, { recursive: true, force: true }).catch(() => {})
+
+    try {
+      await this.driver.quit()
+    } finally {
+      await rm(this.profileDir, { recursive: true, force: true }).catch(() => {})
+    }
   }
 }

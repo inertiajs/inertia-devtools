@@ -90,7 +90,12 @@ test('it builds a file link for every editor scheme and drops the link when set 
       serverTimingMs: 1,
       consumedAt: [],
     },
-    http: { requestHeaders: {}, responseHeaders: {}, requestBody: null, responseBody: null },
+    http: {
+      requestHeaders: {},
+      responseHeaders: {},
+      requestBody: { status: 'empty' },
+      responseBody: { status: 'empty' },
+    },
     props: {},
     route: {
       name: 'devtools.editor',
@@ -143,8 +148,6 @@ test('it remembers the picked editor across a panel reload', async ({ session })
   const tabUuid = await session.storedTabUuid(tabId)
   const tabKey = `ui-prefs-${tabUuid}`
 
-  // The editor is a global preference, not a per-tab one: it lives under `ui-global-prefs` and has to
-  // stay out of the tab-scoped record, which the open Route tab proves is being written beside it.
   await expect
     .poll(async () => await session.storedValues(['ui-global-prefs', tabKey]))
     .toMatchObject({ 'ui-global-prefs': { editor: 'phpstorm' }, [tabKey]: { activeTab: 'route' } })

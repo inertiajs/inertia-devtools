@@ -1,4 +1,3 @@
-import { By, until } from 'selenium-webdriver'
 import { expect, test } from '../drivers/fixtures'
 import { APP_URL } from '../drivers/session'
 
@@ -9,8 +8,8 @@ test('it renders the client page object in the Page tab', async ({ session }) =>
 
   await session.waitForDevActive(tabId)
 
-  await session.driver.findElement(By.linkText('Navigate')).click()
-  await session.driver.wait(until.elementLocated(By.css('#user-name')), 10_000)
+  await session.clickLink('Navigate')
+  await session.waitFor('#user-name')
 
   const entries = await session.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.component === 'Devtools/Navigate'),
@@ -50,7 +49,7 @@ test('it shows server flash carried by the response on the Page tab', async ({ s
 
   await session.waitForDevActive(tabId)
 
-  await session.driver.findElement(By.xpath('//button[normalize-space()="Server flash"]')).click()
+  await session.clickButton('Server flash')
 
   await session.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.method === 'POST' && entry.__meta.url.includes('/devtools/flash')),
@@ -80,7 +79,7 @@ test('it updates the Page tab of the current page when a client-side flash fires
   expect(await session.detailText()).not.toContain('Client flash!')
 
   await session.backToApp()
-  await session.driver.findElement(By.xpath('//button[normalize-space()="Client flash"]')).click()
+  await session.clickButton('Client flash')
 
   await session.toPanel()
 
@@ -96,7 +95,7 @@ test('it pairs a page snapshot with the synthesised client-visit entry', async (
 
   await session.waitForDevActive(tabId)
 
-  await session.driver.findElement(By.xpath('//button[normalize-space()="Client push"]')).click()
+  await session.clickButton('Client push')
 
   await session.waitForEntries(tabId, (list) => list.some((entry) => entry.__meta.requestType === 'client-visit'))
 
@@ -115,11 +114,8 @@ test('it captures the page snapshot for a validation-error response that still c
 
   await session.waitForDevActive(tabId)
 
-  await session.driver.findElement(By.xpath('//button[normalize-space()="Submit validation error"]')).click()
-  await session.driver.wait(
-    until.elementLocated(By.xpath('//p[@id="name-error"][normalize-space()="The name field is required."]')),
-    10_000,
-  )
+  await session.clickButton('Submit validation error')
+  await session.waitForText('#name-error', 'The name field is required.')
 
   const entries = await session.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.url.includes('/devtools/validation-error')),

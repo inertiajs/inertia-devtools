@@ -102,50 +102,163 @@ export abstract class BrowserSession {
   }
 
   /**
-   * Move the pointer onto an element: the stand-in for Playwright's `locator.hover()`.
+   * Click a link by its visible text: the stand-in for `getByRole('link', { name })`.
+   *
+   * This and the four below cover every interaction the specs need, on the app pages and in the
+   * panel alike, so nothing under `shared/` has to reach for `session.driver` or import a locator
+   * strategy. They act on whatever window the driver is on and never switch: a spec drives the app
+   * and the panel in turn, and a helper moving the driver underneath it is exactly what made
+   * assertions pass for the wrong reason.
+   */
+  async clickLink(text: string): Promise<void> {
+    await this.driver.findElement(By.linkText(text)).click()
+  }
+
+  /** Click a button by its label, whitespace-insensitive because the app pages pad theirs. */
+  async clickButton(text: string): Promise<void> {
+    await this.driver.findElement(By.xpath(`//button[normalize-space()=${xpathLiteral(text)}]`)).click()
+  }
+
+  async click(selector: string): Promise<void> {
+    await this.driver.findElement(By.css(selector)).click()
+  }
+
+  async waitFor(selector: string, timeout = 10_000): Promise<WebElement> {
+    return await this.driver.wait(until.elementLocated(By.css(selector)), timeout, `No element matched "${selector}"`)
+  }
+
+  /**
+   * Wait until the element at `selector` reads exactly `text`.
+   *
+   * What proves a navigation landed rather than merely started, so it is worth waiting on the text
+   * and not on the element: the element the app renders into is usually already there with the
+   * previous page's value in it.
+   */
+  async waitForText(selector: string, text: string, timeout = 10_000): Promise<void> {
+    await this.driver.wait(
+      async () => {
+        const [element] = await this.driver.findElements(By.css(selector))
+
+        if (!element) {
+          return false
+        }
+
+        // A re-render between finding the element and reading it invalidates the handle, which is a
+        // reason to look again rather than to fail.
+        const rendered = await element.getText().catch(() => '')
+
+        return rendered.trim() === text
+      },
+      timeout,
+      `The element at "${selector}" never read "${text}"`,
+    )
+  }
+
+  /**
+   * Move the pointer onto a link: the stand-in for Playwright's `locator.hover()`.
    *
    * The only way to arm a `prefetch` link, since Inertia starts one off `mouseenter` and a click
    * never fires that on its own.
    */
+  async hoverLink(text: string): Promise<void> {
+    const link = await this.driver.findElement(By.linkText(text))
+
+    await this.driver.actions().move({ origin: link }).perform()
+  }
+
   async hover(element: WebElement): Promise<void> {
     await this.driver.actions().move({ origin: element }).perform()
   }
 
   /**
-   * Evaluate in an extension page, where the extension APIs live.
+   * Evaluate in the open panel, where the extension APIs live.
    *
    * This is what replaces `serviceWorker.evaluate`. It reaches the same state through the messages
    * the panel itself uses, which works on a Chrome service worker and a Firefox event page alike,
-   * and needs neither CDP nor RDP. The open panel hosts the call when there is one, so no extra tab
-   * appears in the middle of a test.
+   * and needs neither CDP nor RDP. Hosting the call in the panel keeps an extra tab from appearing
+   * mid-test, and the driver is left on the window it started on: a helper that only reads state
+   * must never move the driver off the panel, or a DOM assertion after it silently queries the app.
    */
-  protected async fromExtensionPage<T>(body: string, { reusePanel = true } = {}): Promise<T> {
+  private async inPanel<T>(body: string): Promise<T> {
+    const panel = this.panelHandle
+
+    if (!panel) {
+      return await this.inThrowawayPage(body)
+    }
+
     const current = await this.driver.getWindowHandle()
-    const host = (reusePanel ? this.panelHandle : null) ?? (await this.openExtensionPage('popup/popup.html'))
 
     try {
-      await this.driver.switchTo().window(host)
+      await this.driver.switchTo().window(panel)
+    } catch {
+      // The panel tab died some other way (a crash, or a spec closing its window). Keeping the
+      // handle would make every later read switch to a dead window, and `waitForBackground`'s catch
+      // would turn 20s of `NoSuchWindowError` into "the background never answered".
+      this.panelHandle = null
 
-      return (await this.driver.executeAsyncScript(
-        `const done = arguments[arguments.length - 1]
-         const extension = globalThis.browser ?? globalThis.chrome
-         ${body}`,
-      )) as T
+      return await this.inThrowawayPage(body)
+    }
+
+    try {
+      return await this.evaluateInExtensionPage<T>(body)
     } finally {
-      // A throw above must not strand the throwaway tab or leave the driver pointing at it, and
-      // `waitForBackground` retries this every 100ms, so one broken extension page would otherwise
-      // bury the browser in popups. Cleanup failures are dropped rather than allowed to mask the
-      // failure that brought us here.
-      try {
-        if (host !== this.panelHandle) {
-          await this.driver.close()
-        }
-
-        await this.driver.switchTo().window(current === host ? this.appHandle : current)
-      } catch {
-        // The window is already gone, which is the state this was trying to reach.
+      if (current !== panel) {
+        await this.driver.switchTo().window(current)
       }
     }
+  }
+
+  /**
+   * Evaluate in an extension page opened for this one call.
+   *
+   * The only host available before `openPanel`, and the only correct host for anything the panel
+   * itself has to hear: `runtime.sendMessage` skips its own sender.
+   */
+  private async inThrowawayPage<T>(body: string): Promise<T> {
+    const current = await this.driver.getWindowHandle()
+    const host = await this.openExtensionPage('popup/popup.html')
+
+    await this.driver.switchTo().window(host)
+
+    try {
+      return await this.evaluateInExtensionPage<T>(body)
+    } finally {
+      // A throw above must not strand the tab, and `waitForBackground` retries this every 100ms, so
+      // one broken extension page would otherwise bury the browser in popups. Only the close may
+      // fail quietly: after it the session has no current window, so a swallowed switch-back
+      // failure resurfaces as "no such window" in whatever command runs next.
+      try {
+        await this.driver.close()
+      } catch {
+        // The tab is already gone, which is the state this was trying to reach.
+      }
+
+      await this.driver.switchTo().window(current)
+    }
+  }
+
+  /**
+   * Run a script in the extension page the driver is currently on.
+   *
+   * A body that never settles costs the full W3C script timeout (30s, longer than the deadline of
+   * every caller here) and reports as a timeout rather than as what actually failed, so `fail` is
+   * offered alongside `resolve` and every body is expected to wire both: `runtime.sendMessage`
+   * rejects outright when no receiver is listening, which is a normal state for a lazy event page.
+   */
+  private async evaluateInExtensionPage<T>(body: string): Promise<T> {
+    const outcome = (await this.driver.executeAsyncScript(
+      `const settle = arguments[arguments.length - 1]
+       const extension = globalThis.browser ?? globalThis.chrome
+       const resolve = (value) => settle({ ok: true, value: value ?? null })
+       const fail = (error) => settle({ ok: false, error: String(error) })
+       ${body}`,
+    )) as { ok: true; value: T } | { ok: false; error: string }
+
+    if (!outcome.ok) {
+      throw new Error(`The script threw in an extension page: ${outcome.error}`)
+    }
+
+    return outcome.value
   }
 
   /**
@@ -160,8 +273,8 @@ export abstract class BrowserSession {
     const deadline = Date.now() + timeout
 
     while (Date.now() < deadline) {
-      const alive = await this.fromExtensionPage<boolean>(
-        `extension.runtime.sendMessage({ type: 'panel:hydrate', tabId: -1 }).then(() => done(true), () => done(false))`,
+      const alive = await this.inPanel<boolean>(
+        `extension.runtime.sendMessage({ type: 'panel:hydrate', tabId: -1 }).then(() => resolve(true), () => resolve(false))`,
       ).catch(() => false)
 
       if (alive) {
@@ -204,17 +317,20 @@ export abstract class BrowserSession {
   }
 
   private async appTabIds(): Promise<number[]> {
-    return await this.fromExtensionPage(
+    return await this.inPanel(
       `extension.tabs
          .query({})
-         .then((tabs) => done(tabs.filter((tab) => (tab.url ?? '').startsWith('${APP_URL}')).map((tab) => tab.id)))`,
+         .then(
+           (tabs) => resolve(tabs.filter((tab) => (tab.url ?? '').startsWith('${APP_URL}')).map((tab) => tab.id)),
+           fail,
+         )`,
     )
   }
 
   /** The tab id the recorder keys every entry on. */
   async appTabId(): Promise<number> {
-    const tabs = await this.fromExtensionPage<Array<{ id: number; url: string }>>(
-      `extension.tabs.query({}).then((tabs) => done(tabs.map((tab) => ({ id: tab.id, url: tab.url }))))`,
+    const tabs = await this.inPanel<Array<{ id: number; url: string }>>(
+      `extension.tabs.query({}).then((tabs) => resolve(tabs.map((tab) => ({ id: tab.id, url: tab.url }))), fail)`,
     )
 
     const tab = tabs.find((candidate) => candidate.url.startsWith(APP_URL))
@@ -227,8 +343,8 @@ export abstract class BrowserSession {
   }
 
   private async hydrate(tabId: number): Promise<{ entries: Entry[]; evicted: number; devActive: boolean | null }> {
-    return await this.fromExtensionPage(
-      `extension.runtime.sendMessage({ type: 'panel:hydrate', tabId: ${tabId} }).then(done)`,
+    return await this.inPanel(
+      `extension.runtime.sendMessage({ type: 'panel:hydrate', tabId: ${tabId} }).then(resolve, fail)`,
     )
   }
 
@@ -245,8 +361,8 @@ export abstract class BrowserSession {
   }
 
   async pageStates(tabId: number): Promise<Record<string, PageStateSnapshot>> {
-    const { pageStates } = await this.fromExtensionPage<{ pageStates: Record<string, PageStateSnapshot> }>(
-      `extension.runtime.sendMessage({ type: 'panel:hydrate-page-state', tabId: ${tabId} }).then(done)`,
+    const { pageStates } = await this.inPanel<{ pageStates: Record<string, PageStateSnapshot> }>(
+      `extension.runtime.sendMessage({ type: 'panel:hydrate-page-state', tabId: ${tabId} }).then(resolve, fail)`,
     )
 
     return pageStates
@@ -259,50 +375,55 @@ export abstract class BrowserSession {
    * this would be the one context that never heard it.
    */
   async appendEntry(tabId: number, entry: Entry): Promise<void> {
-    await this.fromExtensionPage(
+    await this.inThrowawayPage(
       `extension.runtime
          .sendMessage({ type: 'entry:appended', tabId: ${tabId}, entry: ${JSON.stringify(entry)} })
          .catch(() => {})
-         .then(() => done())`,
-      { reusePanel: false },
+         .then(() => resolve(), fail)`,
     )
-  }
-
-  async clearEntries(tabId: number): Promise<void> {
-    await this.fromExtensionPage(`extension.runtime.sendMessage({ type: 'panel:clear', tabId: ${tabId} }).then(done)`)
   }
 
   /** Read raw `storage.local` keys, which is where the panel persists what a reload has to survive. */
   async storedValues(keys: string[]): Promise<Record<string, unknown>> {
-    return await this.fromExtensionPage(`extension.storage.local.get(${JSON.stringify(keys)}).then(done)`)
+    return await this.inPanel(`extension.storage.local.get(${JSON.stringify(keys)}).then(resolve, fail)`)
   }
 
   async storedTabUuid(tabId: number): Promise<string | null> {
-    return await this.fromExtensionPage(
-      `extension.storage.local.get('tab-${tabId}').then((stored) => done(stored['tab-${tabId}'] ?? null))`,
+    return await this.inPanel(
+      `extension.storage.local
+         .get('tab-${tabId}')
+         .then((stored) => resolve(stored['tab-${tabId}'] ?? null), fail)`,
     )
   }
 
+  /**
+   * Poll the background buffer until it matches.
+   *
+   * The failure message is built from the last read rather than from a fresh one: getting here
+   * usually means the browser is wedged, and one more round trip would replace "never matched" with
+   * a WebDriver error about the round trip itself.
+   */
   async waitForEntries(tabId: number, matches: (entries: Entry[]) => boolean, timeout = 15_000): Promise<Entry[]> {
     const deadline = Date.now() + timeout
+    let latest: Entry[] = []
 
     while (Date.now() < deadline) {
-      const entries = await this.entries(tabId)
+      latest = await this.entries(tabId)
 
-      if (matches(entries)) {
-        return entries
+      if (matches(latest)) {
+        return latest
       }
 
       await new Promise((wait) => setTimeout(wait, 100))
     }
 
-    throw new Error(`The buffer for tab ${tabId} never matched, it holds ${(await this.entries(tabId)).length} entries`)
+    throw new Error(`The buffer for tab ${tabId} never matched, it holds ${latest.length} entries`)
   }
 
   /** Open the panel in its own tab and leave the driver on it. */
   async openPanel(tabId: number): Promise<void> {
     this.panelHandle = await this.openExtensionPage(`panel/panel.html?tabId=${tabId}`)
-    await this.driver.wait(until.elementLocated(By.css('#app')), 10_000)
+    await this.waitForPanelRender()
   }
 
   async toPanel(): Promise<void> {
@@ -310,25 +431,31 @@ export abstract class BrowserSession {
       throw new Error('The panel is not open')
     }
 
-    await this.driver.switchTo().window(this.panelHandle)
+    try {
+      await this.driver.switchTo().window(this.panelHandle)
+    } catch (error) {
+      this.panelHandle = null
+
+      throw new Error(`The panel tab is gone: ${error}`)
+    }
   }
 
   /** Reload the panel in place, which is how anything it persisted is proved to outlive it. */
   async reloadPanel(): Promise<void> {
     await this.toPanel()
     await this.driver.navigate().refresh()
-    await this.driver.wait(until.elementLocated(By.css('#app')), 10_000)
+    await this.waitForPanelRender()
   }
 
-  async closePanel(): Promise<void> {
-    if (!this.panelHandle) {
-      return
-    }
-
-    await this.driver.switchTo().window(this.panelHandle)
-    await this.driver.close()
-    this.panelHandle = null
-    await this.backToApp()
+  /**
+   * Wait for markup the Vue app rendered, not for the shell it mounted into.
+   *
+   * `#app` is in `panel.html` and resolves the instant the document exists, so waiting on it proves
+   * nothing: an assertion right after `openPanel` would read an empty panel, and any assertion
+   * phrased as an absence would pass for the wrong reason.
+   */
+  private async waitForPanelRender(): Promise<void> {
+    await this.driver.wait(until.elementLocated(By.css('#app header')), 10_000, 'The panel never rendered')
   }
 
   timelineRows(): Promise<WebElement[]> {
@@ -385,7 +512,7 @@ export abstract class BrowserSession {
    * every keystroke fires the `input` event the panel listens for.
    */
   async clearInput(element: WebElement): Promise<void> {
-    const value = await element.getAttribute('value')
+    const value = (await element.getAttribute('value')) ?? ''
 
     for (let index = 0; index < value.length; index++) {
       await element.sendKeys(Key.BACK_SPACE)

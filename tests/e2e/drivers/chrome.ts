@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto'
+import { realpathSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Builder, logging } from 'selenium-webdriver'
+import { Builder, logging, type WebDriver } from 'selenium-webdriver'
 import { Options } from 'selenium-webdriver/chrome.js'
 import { BrowserSession } from './session'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const extensionPath = resolve(here, '../../../dist-chrome')
+const extensionDirectory = resolve(here, '../../../dist-chrome')
 
 /**
  * Chrome's id for an unpacked extension.
@@ -22,22 +23,28 @@ function unpackedExtensionId(path: string): string {
 }
 
 export class ChromeSession extends BrowserSession {
-  readonly extensionId = unpackedExtensionId(extensionPath)
+  readonly extensionId: string
 
-  private constructor(driver: ConstructorParameters<typeof BrowserSession>[0], appHandle: string) {
+  private constructor(driver: WebDriver, appHandle: string, extensionId: string) {
     super(driver, appHandle)
+    this.extensionId = extensionId
   }
 
   private readonly warnings: string[] = []
 
   static async start(): Promise<ChromeSession> {
+    const extensionPath = realpathSync(extensionDirectory)
     const loggingPrefs = new logging.Preferences()
     loggingPrefs.setLevel(logging.Type.BROWSER, logging.Level.ALL)
 
     const options = new Options()
-      .setBrowserVersion('stable')
-      .setLoggingPrefs(loggingPrefs)
-      .addArguments(`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`, '--no-sandbox')
+    options.setBrowserVersion('stable')
+    options.setLoggingPrefs(loggingPrefs)
+    options.addArguments(
+      `--disable-extensions-except=${extensionPath}`,
+      `--load-extension=${extensionPath}`,
+      '--no-sandbox',
+    )
 
     if (process.env.HEADED !== '1') {
       // MV3 extensions only load under the new headless mode.
@@ -51,7 +58,8 @@ export class ChromeSession extends BrowserSession {
     // Past this point the browser exists, and the fixture only reaches `stop()` for a session that
     // was returned, so anything that throws here has to take the browser down with it.
     try {
-      const session = new ChromeSession(driver, await driver.getWindowHandle())
+      const session = new ChromeSession(driver, await driver.getWindowHandle(), unpackedExtensionId(extensionPath))
+      await driver.manage().setTimeouts({ pageLoad: 20_000, script: 10_000 })
       await session.waitForBackground()
 
       return session

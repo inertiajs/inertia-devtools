@@ -14,6 +14,13 @@ Route::post('/_inertia/devtools/test/fail-next-entry-fetch', function (Request $
     return response()->noContent();
 });
 
+// The extension starts an ingest off the response header alone, so re-stamping an id it already
+// recorded is the only way a test can make it fetch the same entry twice. Kept out of the Inertia
+// middleware, which would otherwise record this request and stamp an id of its own over it.
+Route::get('/_inertia/devtools/test/replay-entry/{id}', fn (string $id) => response()->noContent()->withHeaders([
+    'x-inertia-devtools-id' => $id,
+]))->where('id', '[0-9A-Za-z]+')->withoutMiddleware([HandleInertiaRequests::class]);
+
 Route::get('/', fn () => Inertia::render('Devtools/Home'));
 
 Route::get('/non-inertia', fn () => '<!DOCTYPE html><html lang="en"><head><title>Not Inertia</title></head><body><h1>Not an Inertia page</h1></body></html>')

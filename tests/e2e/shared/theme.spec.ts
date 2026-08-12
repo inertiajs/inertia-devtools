@@ -1,4 +1,3 @@
-import { By } from 'selenium-webdriver'
 import { expect, test } from '../drivers/fixtures'
 
 const THEME_TOGGLE = 'button[aria-label^="Theme: "]'
@@ -19,20 +18,21 @@ test('it cycles theme modes and persists the choice across a panel reload', asyn
   await session.waitForEntries(tabId, (list) => list.length === 1)
   await session.openPanel(tabId)
 
-  const theme = async (): Promise<string | null> =>
-    await session.driver.findElement(By.css(THEME_TOGGLE)).getAttribute('aria-label')
+  const theme = async (): Promise<string | null> => await (await session.waitFor(THEME_TOGGLE)).getAttribute('aria-label')
 
-  const cycle = async (): Promise<void> => await session.driver.findElement(By.css(THEME_TOGGLE)).click()
+  const cycle = async (): Promise<void> => await session.click(THEME_TOGGLE)
+
+  const htmlClass = async (): Promise<string | null> => await (await session.waitFor('html')).getAttribute('class')
 
   expect(await theme()).toBe('Theme: system')
 
   await cycle()
   await expect.poll(theme).toBe('Theme: light')
-  expect(await session.driver.findElement(By.css('html')).getAttribute('class')).not.toContain('dark')
+  expect(await htmlClass()).not.toContain('dark')
 
   await cycle()
   await expect.poll(theme).toBe('Theme: dark')
-  expect(await session.driver.findElement(By.css('html')).getAttribute('class')).toContain('dark')
+  expect(await htmlClass()).toContain('dark')
 
   await cycle()
   await expect.poll(theme).toBe('Theme: system')
@@ -43,8 +43,6 @@ test('it cycles theme modes and persists the choice across a panel reload', asyn
   await session.reloadPanel()
   await expect.poll(theme).toBe('Theme: light')
 
-  // The theme is one global preference, not one per inspected tab, so neither tab-keyed slot is
-  // written and every panel opens on the same choice.
   const stored = await session.storedValues(['ui-global-prefs', `ui-prefs-${tabId}`, `ui-prefs-${tabUuid}`])
 
   expect(stored['ui-global-prefs']).toMatchObject({ theme: 'light' })

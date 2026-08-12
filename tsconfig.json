@@ -1,11 +1,19 @@
 {
-  "include": ["src/**/*.ts", "src/**/*.vue", "src/**/*.d.ts", "manifest.config.ts", "vite.config.ts"],
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.vue",
+    "src/**/*.d.ts",
+    "tests/**/*.ts",
+    "tests/**/*.d.ts",
+    "manifest.config.ts",
+    "vite.config.ts"
+  ],
   "compilerOptions": {
     "lib": ["DOM", "DOM.Iterable", "ES2022"],
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "types": ["chrome", "vite/client"],
+    "types": ["chrome", "node", "vite/client"],
     "jsx": "preserve",
     "strict": true,
     "noUnusedLocals": true,

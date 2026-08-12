@@ -1,5 +1,19 @@
-import { By, until } from 'selenium-webdriver'
+import { By, until, type WebElement } from 'selenium-webdriver'
 import { expect, test } from '../drivers/fixtures'
+import type { BrowserSession } from '../drivers/session'
+
+/**
+ * Timeline rows badged as a prefetch consumed exactly once.
+ *
+ * A row consumed twice reads `consumed 2×`, which still contains the single-consumption text, so
+ * the substring match `rowsContaining` does cannot tell the two apart.
+ */
+async function consumedOnceRows(session: BrowserSession): Promise<WebElement[]> {
+  const rows = await session.timelineRows()
+  const texts = await Promise.all(rows.map(async (row) => await row.getText()))
+
+  return rows.filter((_, index) => /prefetch · consumed(?! \d)/.test(texts[index]))
+}
 
 test('it groups a partial reload under the visit that rendered the page', async ({ session }) => {
   await session.openApp('/devtools')
@@ -7,6 +21,11 @@ test('it groups a partial reload under the visit that rendered the page', async 
   const tabId = await session.appTabId()
 
   await session.waitForDevActive(tabId)
+
+  const [initial] = await session.waitForEntries(tabId, (list) => list.length === 1)
+
+  expect(initial.__meta.status).toBe(200)
+  expect(initial.__meta.url).toContain('/devtools')
 
   await session.driver.findElement(By.linkText('Partial')).click()
   await session.driver.wait(until.elementLocated(By.css('#summary-total')), 10_000)
@@ -25,6 +44,7 @@ test('it groups a partial reload under the visit that rendered the page', async 
   expect(navigate?.__meta.batchId).toBeNull()
   expect(partial?.__meta.batchId).toBe(navigate?.__meta.id)
   expect(Object.keys(partial?.props ?? {})).toContain('summary')
+  expect(Object.keys(partial?.props ?? {})).not.toContain('always')
   expect(Object.keys(partial?.props ?? {})).not.toContain('heavy')
 })
 
@@ -108,12 +128,14 @@ test('it records a prefetch, stamps it consumed, and chains the deferred load th
   expect(consumed.__meta.consumedAt?.[0]).toMatch(/^\d{4}-\d{2}-\d{2}T/)
   expect(entries.filter((entry) => entry.__meta.requestType === 'prefetch')).toHaveLength(1)
   expect(deferred.__meta.batchId).toBe(prefetch.__meta.id)
+  expect(Object.keys(deferred.props ?? {})).not.toContain('message')
 
   await session.openPanel(tabId)
 
   await expect.poll(async () => (await session.rowsContaining('cache-hit')).length).toBe(1)
+  await expect.poll(async () => (await consumedOnceRows(session)).length).toBe(1)
 
-  const [prefetchRow] = await session.rowsContaining('prefetch · consumed')
+  const [prefetchRow] = await consumedOnceRows(session)
 
   expect(await prefetchRow.getText()).toContain('/devtools/prefetch-target')
 })
@@ -437,11 +459,13 @@ test('it keeps an index partial in the index batch and jumps from the cache-hit 
 
   await expect
     .poll(async () => {
-      const [row] = await session.rowsContaining('prefetch · consumed')
+      const [row] = await consumedOnceRows(session)
 
-      return await row.getAttribute('aria-selected')
+      return await row?.getAttribute('aria-selected')
     })
     .toBe('true')
+
+  expect(await consumedOnceRows(session)).toHaveLength(1)
 })
 
 test('it captures POST and GET entries in the same buffer', async ({ session }) => {

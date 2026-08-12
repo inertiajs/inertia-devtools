@@ -1,4 +1,3 @@
-import { By, until } from 'selenium-webdriver'
 import { expect, test } from '../drivers/fixtures'
 
 test('it stamps lineage from the page world, not only from response headers', async ({ session }) => {
@@ -8,8 +7,8 @@ test('it stamps lineage from the page world, not only from response headers', as
 
   await session.waitForDevActive(tabId)
 
-  await session.driver.findElement(By.linkText('Navigate')).click()
-  await session.driver.wait(until.elementLocated(By.css('#user-name')), 10_000)
+  await session.clickLink('Navigate')
+  await session.waitFor('#user-name')
 
   // Entries alone prove nothing about the content scripts: the background records those off
   // `webRequest`. A visitId exists only if page-world.js stamped the request on its way out, which is
@@ -25,9 +24,24 @@ test('it stamps lineage from the page world, not only from response headers', as
 
 const NEVER_APPEARED = 'interceptor registry never appeared'
 
-test('it warns exactly once when the server enables devtools but the registry never appears', async ({ session }) => {
+test('it stays quiet on a page that boots and warns exactly once when the registry never appears', async ({
+  session,
+}) => {
+  await session.openApp('/devtools')
+
+  const tabId = await session.appTabId()
+
+  // A recorded entry proves the registry attached, so the warning can no longer fire. Waiting on
+  // that beats sleeping out the whole grace window. The healthy page goes first because it is what
+  // proves the reader is alive: asserting an empty list on its own passes just as well when the
+  // console is never read at all.
+  await session.waitForDevActive(tabId)
+  await session.waitForEntries(tabId, (list) => list.length === 1)
+
+  expect((await session.consoleWarnings()).filter((warning) => warning.includes(NEVER_APPEARED))).toHaveLength(0)
+
   await session.openApp('/devtools?noDevtools&interceptor_timeout=500')
-  await session.driver.wait(until.elementLocated(By.css('script[data-inertia-devtools-id]')), 10_000)
+  await session.waitFor('script[data-inertia-devtools-id]')
 
   await expect
     .poll(async () => (await session.consoleWarnings()).filter((warning) => warning.includes(NEVER_APPEARED)).length, {
@@ -40,17 +54,4 @@ test('it warns exactly once when the server enables devtools but the registry ne
   await new Promise((wait) => setTimeout(wait, 2000))
 
   expect((await session.consoleWarnings()).filter((warning) => warning.includes(NEVER_APPEARED))).toHaveLength(1)
-})
-
-test('it never warns about a missing registry on a page that boots normally', async ({ session }) => {
-  await session.openApp('/devtools')
-
-  const tabId = await session.appTabId()
-
-  // A recorded entry proves the registry attached, so the warning can no longer fire. Waiting on
-  // that beats sleeping out the whole grace window.
-  await session.waitForDevActive(tabId)
-  await session.waitForEntries(tabId, (list) => list.length === 1)
-
-  expect((await session.consoleWarnings()).filter((warning) => warning.includes(NEVER_APPEARED))).toHaveLength(0)
 })

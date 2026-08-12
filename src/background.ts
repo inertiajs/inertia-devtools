@@ -1,16 +1,14 @@
 import { broadcastDevStatus, broadcastEntryPageState, broadcastRequestActive } from './background/broadcasts'
 import { handleCacheHit } from './background/cacheHit'
-import { forgetProvenHosts, rememberProvenHost } from './background/hosts'
+import { rememberProvenHost } from './background/hosts'
 import { ingestEntry } from './background/ingest'
 import { appendAndBroadcast } from './background/record'
 import {
   applyClientFlash,
-  clearAll,
   clearTabEntries,
   getDevActive,
   getEntries,
   getEvictedCount,
-  getOrigin,
   getPageStatesForTab,
   pairPageStateWithEntry,
   setDevActive,
@@ -25,16 +23,8 @@ import type {
   ClientVisitSnapshot,
   ContentCacheHitMessage,
   ContentToBackgroundMessage,
-  DevToolsTestHooks,
   PageStateSnapshot,
 } from './types'
-
-type DevToolsServiceWorkerGlobal = {
-  __inertiaDevtools: DevToolsTestHooks
-}
-
-// E2E-only hook for tests/devtools/fixtures.ts.
-declare const self: WorkerGlobalScope & DevToolsServiceWorkerGlobal
 
 // Surface worker runtime errors in the worker's own console instead of failing silently.
 const workerScope = self as unknown as {
@@ -85,18 +75,6 @@ browser.webRequest.onHeadersReceived.addListener(
   { urls: ['<all_urls>'] },
   ['responseHeaders'],
 )
-
-self.__inertiaDevtools = {
-  getBuffer: (tabId) => getEntries(tabId),
-  getOrigin: (tabId) => getOrigin(tabId),
-  getPageStates: (tabId) => getPageStatesForTab(tabId),
-  clearAll: () => clearAll(),
-  ingest: (tabId, origin, id) => ingestEntry(tabId, origin, id),
-  forgetHosts: async () => {
-    await forgetProvenHosts()
-    await syncAllTabRules()
-  },
-}
 
 function replyOk(sendResponse: (response: { ok: true }) => void): boolean {
   sendResponse({ ok: true })

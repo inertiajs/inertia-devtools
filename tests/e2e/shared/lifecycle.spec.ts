@@ -81,6 +81,36 @@ test('it clears the timeline and the background buffer from the panel', async ({
   expect(await session.timelineRows()).toHaveLength(0)
 })
 
+test('it recovers after a failed entry fetch when the next ingest succeeds', async ({ session }) => {
+  await session.openApp('/devtools')
+
+  const tabId = await session.appTabId()
+  const [initial] = await session.waitForEntries(tabId, (list) => list.length === 1)
+  const id = initial.__meta.id
+
+  await session.openPanel(tabId)
+  await session.driver.findElement(By.xpath('//button[normalize-space()="Clear"]')).click()
+  await expect.poll(async () => (await session.entries(tabId)).length).toBe(0)
+
+  await session.inApp(
+    `await fetch('/_inertia/devtools/test/fail-next-entry-fetch?count=1&id=${id}', { method: 'POST' })`,
+  )
+  await session.inApp(`await fetch('/_inertia/devtools/test/replay-entry/${id}')`)
+
+  // The armed 503 leaves nothing to append, so the only observable outcome is a buffer that stays
+  // empty. An ingest that recorded the entry anyway would show up inside this window.
+  await new Promise((wait) => setTimeout(wait, 2000))
+
+  expect(await session.entries(tabId)).toHaveLength(0)
+
+  await session.inApp(`await fetch('/_inertia/devtools/test/replay-entry/${id}')`)
+
+  const recovered = await session.waitForEntries(tabId, (list) => list.length === 1)
+
+  expect(recovered[0].__meta.id).toBe(id)
+  expect(recovered[0].__meta.status).toBe(200)
+})
+
 test('it decodes percent-encoded characters in recorded urls', async ({ session }) => {
   await session.openApp('/devtools')
 
@@ -119,7 +149,6 @@ test('it keeps buffers apart per tab and drops one when its tab goes away', asyn
 
   await session.closeTab(extra.handle)
 
-  // Only the closed tab's buffer goes: the surviving tab has to keep everything it recorded.
   await expect.poll(async () => (await session.entries(extra.tabId)).length).toBe(0)
   expect(await session.entries(tabId)).not.toHaveLength(0)
 })

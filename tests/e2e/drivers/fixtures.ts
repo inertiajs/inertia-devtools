@@ -29,8 +29,11 @@ export const test = base.extend<{ session: BrowserSession }>({
         ? await FirefoxSession.start(testInfo.parallelIndex)
         : await ChromeSession.start()
 
-    await use(session)
-    await session.stop()
+    try {
+      await use(session)
+    } finally {
+      await session.stop()
+    }
   },
 })
 

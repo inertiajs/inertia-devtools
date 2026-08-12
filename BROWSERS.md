@@ -62,13 +62,20 @@ Chrome build inherits.
 ## Automated coverage
 
 One suite covers both browsers. The specs in `tests/e2e/shared` never name a browser: the Playwright
-project name picks a driver, so the same test runs twice.
+project name picks a driver, so the same test runs twice. Specs that need a browser-only capability
+live under `tests/e2e/firefox`, and the project config includes those only in Firefox, so `shared/`
+stays honest about running in both browsers.
 
 ```bash
 pnpm test:e2e                      # both browser projects
+pnpm test:e2e:chrome               # Chrome only
 pnpm test:e2e:firefox              # Firefox only
-pnpm test:e2e --project=chromium-selenium
 ```
+
+Running both projects in one Playwright process is safe: worker slots are shared across projects, so
+`testInfo.parallelIndex` is unique among concurrently running workers, and Chrome allocates no
+debugger port at all. The port risks are two separate Playwright e2e processes reusing the same
+worker slots, or orphaned Firefox browsers holding a debugger port after an interrupted run.
 
 Playwright is the test runner here, not the browser: it loads extensions into Chromium alone, so both
 browsers are driven through `selenium-webdriver` (`tests/e2e/drivers/`). Selenium Manager, which ships
@@ -83,22 +90,18 @@ nothing to install and no version to keep in step. `SE_FORCE_BROWSER_DOWNLOAD` i
   `visitId` and `batchId` is null. `shared/instrumentation.spec.ts` asserts a `visitId` precisely so
   that a browser which drops content scripts fails instead of reporting green.
 
-State that Chrome's Playwright suite reads with `serviceWorker.evaluate` is read here through the
-messages the panel itself uses (`panel:hydrate`, `panel:hydrate-page-state`, `panel:clear`), sent from
-an extension page. A Chrome service worker and a Firefox event page answer those identically, so no
-CDP and no RDP is involved. Both are started lazily, which is why a session waits for the background
-to answer before the first navigation: `webRequest.onHeadersReceived` is what records an entry, and a
-navigation that beats it awake is never seen.
+Background state is read through the messages the panel itself uses (`panel:hydrate` and
+`panel:hydrate-page-state`), sent from an extension page. A Chrome service worker and a Firefox event
+page answer those identically, so no CDP and no RDP is involved. Both are started lazily, which is why
+a session waits for the background to answer before the first navigation: `webRequest.onHeadersReceived`
+is what records an entry, and a navigation that beats it awake is never seen.
 
 Firefox keeps one thing of its own, `drivers/rdp.ts`, a small Remote Debugging Protocol client. It
-exists only to open an extension page: no driver may navigate to a `moz-extension://` URL (geckodriver
-answers `UnsupportedOperationError`, Playwright hangs), and opening the tab from privileged chrome JS
-needs `--remote-allow-system-access`, which geckodriver refuses to accept as a capability. What works
-is letting the extension open its own tab and switching the driver to that window handle, which is
-also why Playwright cannot drive the panel at all: it never lists the tab.
-
-`tests/e2e/*.spec.ts` is the original Chrome-only Playwright suite (`pnpm test:e2e:chrome`). It is out
-of CI while the shared suite grows to cover it.
+opens extension pages because no driver may navigate to a `moz-extension://` URL (geckodriver answers
+`UnsupportedOperationError`, Playwright hangs), and opening the tab from privileged chrome JS needs
+`--remote-allow-system-access`, which geckodriver refuses to accept as a capability. It also reads the
+app tab console, because geckodriver has no browser log endpoint and Firefox's `consoleWarnings`
+implementation has nowhere else to get those messages.
 
 ## Manual smoke checklist
 

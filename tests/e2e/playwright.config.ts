@@ -1,11 +1,5 @@
 import { defineConfig } from '@playwright/test'
 
-declare const process: {
-  env: {
-    CI?: boolean
-  }
-}
-
 const runsInCI = !!process.env.CI
 const url = 'http://127.0.0.1:13337'
 const appDir = new URL('./app', import.meta.url).pathname
@@ -29,9 +23,10 @@ export default defineConfig({
   },
   // One suite, both browsers. The specs in tests/e2e/shared never name a browser: the project name
   // picks a driver (see tests/e2e/drivers/fixtures.ts), and Playwright is only the runner.
+  // tests/e2e/firefox holds what only Gecko can do, so nothing in shared/ has to branch on a browser.
   projects: [
     { name: 'chromium-selenium', testMatch: /shared\/.*\.spec\.ts$/ },
-    { name: 'firefox', testMatch: /shared\/.*\.spec\.ts$/ },
+    { name: 'firefox', testMatch: /(shared|firefox)\/.*\.spec\.ts$/ },
   ],
   // The extension only captures data when the app runs through the vite dev server: the
   // `inertia()` vite plugin injects the client devtools instrumentation and real source
@@ -41,7 +36,7 @@ export default defineConfig({
     {
       // laravel-vite-plugin refuses to start the HMR dev server when CI is set, but the
       // extension needs it for the devtools instrumentation, so bypass that guard.
-      command: 'pnpm install && LARAVEL_BYPASS_ENV_CHECK=1 pnpm dev',
+      command: 'LARAVEL_BYPASS_ENV_CHECK=1 pnpm dev',
       cwd: appDir,
       url: 'http://localhost:4242/@vite/client',
       reuseExistingServer: true,

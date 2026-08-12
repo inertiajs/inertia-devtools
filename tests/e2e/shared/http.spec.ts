@@ -1,16 +1,15 @@
-import { By, until } from 'selenium-webdriver'
 import { expect, test } from '../drivers/fixtures'
 
 test('it renders request and response detail in the HTTP tab', async ({ session }) => {
   await session.openApp('/devtools')
-  await session.driver.findElement(By.linkText('Navigate')).click()
-  await session.driver.wait(until.elementLocated(By.css('#user-name')), 10_000)
+  await session.clickLink('Navigate')
+  await session.waitFor('#user-name')
 
-  await session.driver.findElement(By.linkText('Back')).click()
-  await session.driver.wait(until.elementLocated(By.css('#greeting')), 10_000)
+  await session.clickLink('Back')
+  await session.waitFor('#greeting')
 
-  await session.driver.findElement(By.xpath('//button[normalize-space()="Submit post render"]')).click()
-  await session.driver.wait(until.elementLocated(By.css('#report')), 10_000)
+  await session.clickButton('Submit post render')
+  await session.waitFor('#report')
 
   const tabId = await session.appTabId()
 
@@ -24,9 +23,6 @@ test('it renders request and response detail in the HTTP tab', async ({ session 
   const navigate = entries.find((entry) => entry.__meta.component === 'Devtools/Navigate')!
   const postRender = entries.find((entry) => entry.__meta.component === 'Devtools/PostRenderResult')!
 
-  // The recorded bodies, not just what the panel renders: `Entry` mirrors the adapter's
-  // `IncomingEntry::toArray()` and nothing else in the suite pins that shape, so a recorder that
-  // stopped sending most of a body would still paint enough text for the panel assertions below.
   expect(navigate.http.responseBody).toMatchObject({
     status: 'present',
     value: {
@@ -82,8 +78,8 @@ test('it captures a non-Inertia JSON response and expands its body from the sect
   const tabId = await session.appTabId()
   await session.waitForEntries(tabId, (list) => list.length === 1)
 
-  await session.driver.findElement(By.xpath('//button[normalize-space()="Fetch JSON"]')).click()
-  await session.driver.wait(until.elementLocated(By.xpath('//p[@id="json-status"][text()="200"]')), 10_000)
+  await session.clickButton('Fetch JSON')
+  await session.waitForText('#json-status', '200')
 
   const entries = await session.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.url.includes('/devtools/api-json')),
@@ -104,11 +100,11 @@ test('it captures a non-Inertia JSON response and expands its body from the sect
   await expect.poll(async () => await session.detailText()).toContain('RESPONSE BODY')
   expect(await session.detailText()).not.toContain('"alpha"')
 
-  await session.driver.findElement(By.css('#detail-tabpanel button[aria-label="Expand all"]')).click()
+  await session.click('#detail-tabpanel button[aria-label="Expand all"]')
 
   await expect.poll(async () => await session.detailText()).toContain('"alpha"')
 
-  await session.driver.findElement(By.css('#detail-tabpanel button[aria-label="Collapse all"]')).click()
+  await session.click('#detail-tabpanel button[aria-label="Collapse all"]')
 
   await expect.poll(async () => await session.detailText()).not.toContain('"alpha"')
 })

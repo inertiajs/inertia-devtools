@@ -1,4 +1,3 @@
-import { By, until } from 'selenium-webdriver'
 import type { FirefoxSession } from '../drivers/firefox'
 import { expect, test } from '../drivers/fixtures'
 import { evalAsync } from '../drivers/rdp'
@@ -6,19 +5,18 @@ import { evalAsync } from '../drivers/rdp'
 const NO_ACCESS_BANNER = 'The DevTools have no access to this site'
 
 /**
- * Only the revoking direction is covered.
+ * Only the revoking direction is covered, and only in Firefox, which is why this spec sits outside
+ * `shared/`: Chrome grants its host permissions at install time and cannot revoke them.
  *
  * Granting it back needs `permissions.request`, which raises a doorhanger in browser chrome: the
  * call is reachable from the panel behind a real click, but its promise parks until someone answers
  * a prompt no driver can reach, so the test would hang rather than fail.
  */
 test('it banners the panel while host access to the inspected site is revoked', async ({ session }) => {
-  test.skip(test.info().project.name !== 'firefox', 'Host permissions are only revocable in Firefox')
-
   const { background } = session as FirefoxSession
 
   await session.openApp('/devtools')
-  await session.driver.wait(until.elementLocated(By.css('#greeting')), 10_000)
+  await session.waitFor('#greeting')
 
   const tabId = await session.appTabId()
   await session.waitForEntries(tabId, (list) => list.length === 1)

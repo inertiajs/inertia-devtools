@@ -174,7 +174,12 @@ test('it links each prop to its own render source', async ({ session }) => {
       serverTimingMs: 3,
       consumedAt: [],
     },
-    http: { requestHeaders: {}, responseHeaders: {}, requestBody: null, responseBody: null },
+    http: {
+      requestHeaders: {},
+      responseHeaders: {},
+      requestBody: { status: 'empty' },
+      responseBody: { status: 'empty' },
+    },
     props: {
       name: { renderSource: { file: '/tmp/PropsFixture.php', line: 71 } },
       teammate: { renderSource: { file: '/tmp/PropsFixture.php', line: 94 } },
