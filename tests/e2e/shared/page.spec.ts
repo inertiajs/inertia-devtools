@@ -71,7 +71,6 @@ test('it renders client and server flash updates in the Page tab', async ({ app,
   expect(await panel.detailText()).not.toContain('Client flash!')
 
   await app.clickButton('Client flash')
-  await panel.show()
 
   await expect.poll(async () => await panel.detailText()).toContain('Client flash!')
 
@@ -80,8 +79,6 @@ test('it renders client and server flash updates in the Page tab', async ({ app,
   await extension.waitForEntries(tabId, (list) =>
     list.some((entry) => entry.__meta.method === 'POST' && entry.__meta.url.includes('/devtools/flash')),
   )
-
-  await panel.show()
 
   await panel.selectRow('/devtools/flash')
   await panel.openDetailTab('page')

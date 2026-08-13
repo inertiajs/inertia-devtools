@@ -137,7 +137,6 @@ test('it shows the empty state then renders the first row after a navigation', a
   await app.open('/devtools')
   await extension.waitForEntries(tabId, (list) => list.length === 1)
 
-  await panel.show()
   await expect.poll(async () => (await panel.timelineRows()).length).toBe(1)
 })
 

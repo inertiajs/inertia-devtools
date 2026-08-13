@@ -398,8 +398,6 @@ test('it dedupes a re-broadcast entry on the panel side', async ({ app, extensio
 
   await extension.appendEntry(tabId, entries[0])
   await extension.appendEntry(tabId, entries[0])
-
-  await panel.show()
   await expect.poll(async () => (await panel.timelineRows()).length).toBe(1)
 })
 

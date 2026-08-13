@@ -168,7 +168,6 @@ export function createPanel(driver: WebDriver, openExtensionPage: OpenExtensionP
     selectFilter,
     selectFirstRow,
     selectRow,
-    show,
     subtitles,
     text,
     timelineRows,

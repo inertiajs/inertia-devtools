@@ -1,7 +1,6 @@
 import type { WebDriver } from 'selenium-webdriver'
 import type { Entry, PageStateSnapshot } from '../../../src/types'
 import { APP_URL } from './app'
-import { evaluate as evaluateScript } from './evaluate'
 
 export type OpenExtensionPage = (path: string) => Promise<string>
 
@@ -36,11 +35,9 @@ export function createExtension(driver: WebDriver, openExtensionPage: OpenExtens
     const helper = await helperPage()
 
     try {
-      return await evaluateScript(
-        driver,
-        'The script threw in an extension page',
-        'const extension = globalThis.browser ?? globalThis.chrome',
-        script,
+      return await driver.executeScript<T>(
+        `const extension = globalThis.browser ?? globalThis.chrome
+         return (async () => { ${script} })()`,
         ...args,
       )
     } finally {
@@ -63,24 +60,24 @@ export function createExtension(driver: WebDriver, openExtensionPage: OpenExtens
     )
   }
 
-  const appTabIds = async (appUrl = APP_URL): Promise<number[]> => {
+  const appTabIds = async (): Promise<number[]> => {
     return await evaluate(
       `const appUrl = arguments[0]
        const tabs = await extension.tabs.query({})
 
        return tabs.filter((tab) => (tab.url ?? '').startsWith(appUrl)).map((tab) => tab.id)`,
-      appUrl,
+      APP_URL,
     )
   }
 
-  const appTabId = async (appUrl = APP_URL): Promise<number> => {
+  const appTabId = async (): Promise<number> => {
     const tabs = await evaluate<Array<{ id: number; url: string }>>(
       `return (await extension.tabs.query({})).map((tab) => ({ id: tab.id, url: tab.url }))`,
     )
-    const tab = tabs.find((candidate) => candidate.url.startsWith(appUrl))
+    const tab = tabs.find((candidate) => candidate.url.startsWith(APP_URL))
 
     if (!tab) {
-      throw new Error(`No tab is on ${appUrl}: ${tabs.map((candidate) => candidate.url).join(', ')}`)
+      throw new Error(`No tab is on ${APP_URL}: ${tabs.map((candidate) => candidate.url).join(', ')}`)
     }
 
     return tab.id
@@ -176,5 +173,3 @@ export function createExtension(driver: WebDriver, openExtensionPage: OpenExtens
     waitUntilReady,
   }
 }
-
-export type Extension = ReturnType<typeof createExtension>

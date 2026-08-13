@@ -6,7 +6,6 @@ test('it registers and renders inside the real Firefox DevTools toolbox', async 
   const tabId = await extension.appTabId()
 
   await extension.waitForEntries(tabId, (entries) => entries.length === 1)
-  await app.show()
 
   if (!('openRealDevtoolsPanel' in runtime)) {
     throw new Error('The Firefox project did not launch a Firefox runtime')

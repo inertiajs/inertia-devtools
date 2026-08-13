@@ -134,8 +134,6 @@ test('it labels a deferred prop with its group and expands every prop from the t
     list.some((entry) => entry.__meta.component === 'Devtools/Deferred' && entry.__meta.requestType === 'partial'),
   )
 
-  await panel.show()
-
   await panel.selectRow('· partial')
   await panel.openDetailTab('props')
 

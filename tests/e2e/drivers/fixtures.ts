@@ -1,15 +1,15 @@
 import { test as base, type TestInfo } from '@playwright/test'
-import { createApp, type App } from './app'
+import { createApp } from './app'
 import { launchChrome } from './chrome'
-import { createExtension, type Extension } from './extension'
+import { createExtension } from './extension'
 import { launchFirefox } from './firefox'
 import { createPanel, type Panel } from './panel'
 
 type BrowserRuntime = Awaited<ReturnType<typeof launchChrome>> | Awaited<ReturnType<typeof launchFirefox>>
 
 type E2EFixtures = {
-  app: App
-  extension: Extension
+  app: ReturnType<typeof createApp>
+  extension: ReturnType<typeof createExtension>
   panel: Panel
   runtime: BrowserRuntime
 }

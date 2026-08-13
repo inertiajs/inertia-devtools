@@ -188,8 +188,6 @@ test('it keeps panel broadcasts scoped to the tab the panel was opened for', asy
   await app.waitFor('#user-name')
   await extension.waitForEntries(tabId, (list) => list.some((entry) => entry.__meta.component === 'Devtools/Navigate'))
 
-  await panel.show()
-
   // The broadcast reaches every open panel, so the filter on tab id is the only thing keeping the
   // other tab's entry out of these rows.
   await expect.poll(async () => (await panel.rowsContaining('Devtools/Navigate')).length).toBe(0)

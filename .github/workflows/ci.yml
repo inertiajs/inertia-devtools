@@ -94,7 +94,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # No browser or driver install step: Selenium Manager, bundled with selenium-webdriver, fetches
-      # both and pairs them (tests/e2e/drivers/fixtures.ts). This only keeps them between runs.
+      # both and pairs them in the browser launchers. This only keeps them between runs.
       - name: Cache Selenium browsers and drivers
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:

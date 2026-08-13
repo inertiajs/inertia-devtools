@@ -1,5 +1,4 @@
 import { By, type WebDriver, type WebElement } from 'selenium-webdriver'
-import { evaluate as evaluateScript } from './evaluate'
 import { waitForLocated, waitForText as waitForLocatorText, waitForVisible, xpathLiteral } from './waits'
 
 export const APP_URL = 'http://127.0.0.1:13337'
@@ -18,7 +17,7 @@ export function createApp(driver: WebDriver, appHandle: string, readAppTabIds: (
   const evaluate = async <T>(script: string, ...args: unknown[]): Promise<T> => {
     await show()
 
-    return await evaluateScript(driver, 'The script threw in the app tab', '', script, ...args)
+    return await driver.executeScript<T>(`return (async () => { ${script} })()`, ...args)
   }
 
   const clickLink = async (text: string): Promise<void> => {
@@ -94,11 +93,8 @@ export function createApp(driver: WebDriver, appHandle: string, readAppTabIds: (
     hoverLink,
     open,
     openExtra,
-    show,
     waitFor,
     waitForAttached,
     waitForText,
   }
 }
-
-export type App = ReturnType<typeof createApp>

@@ -2,7 +2,6 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Builder, LogInspector } from 'selenium-webdriver'
 import { Context, Driver, Options, ServiceBuilder } from 'selenium-webdriver/firefox.js'
-import { evaluate } from './evaluate'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const addonPath = resolve(here, '../../../dist-firefox')
@@ -65,50 +64,49 @@ async function openFunctionalFirefoxExtensionPage(driver: Driver, path: string):
 /** Open Firefox's real toolbox and prove that its WebExtension tool is registered and selected. */
 async function openFirefoxToolbox(driver: Driver): Promise<void> {
   await inFirefoxChromeContext(driver, async () => {
-    await evaluate(
-      driver,
-      'The real Firefox DevTools toolbox failed',
-      '',
+    await driver.executeScript(
       `
-        const { require } = ChromeUtils.importESModule('resource://devtools/shared/loader/Loader.sys.mjs')
-        const { gDevTools } = require('devtools/client/framework/devtools')
-        const toolbox = await gDevTools.showToolboxForTab(gBrowser.selectedTab)
-        const deadline = Date.now() + 10000
-        const toolDefinitions = () => [
-          ...gDevTools.getToolDefinitionArray(),
-          ...(toolbox.getToolDefinitionArray?.() ?? []),
-          ...(toolbox.additionalToolDefinitions?.values?.() ?? []),
-          ...(toolbox._additionalToolDefinitions?.values?.() ?? []),
-        ]
-        let tool
+        return (async () => {
+          const { require } = ChromeUtils.importESModule('resource://devtools/shared/loader/Loader.sys.mjs')
+          const { gDevTools } = require('devtools/client/framework/devtools')
+          const toolbox = await gDevTools.showToolboxForTab(gBrowser.selectedTab)
+          const deadline = Date.now() + 10000
+          const toolDefinitions = () => [
+            ...gDevTools.getToolDefinitionArray(),
+            ...(toolbox.getToolDefinitionArray?.() ?? []),
+            ...(toolbox.additionalToolDefinitions?.values?.() ?? []),
+            ...(toolbox._additionalToolDefinitions?.values?.() ?? []),
+          ]
+          let tool
 
-        while (Date.now() < deadline) {
-          tool = toolDefinitions().find((candidate) => candidate.label === 'Inertia')
+          while (Date.now() < deadline) {
+            tool = toolDefinitions().find((candidate) => candidate.label === 'Inertia')
 
-          if (tool) {
-            break
+            if (tool) {
+              break
+            }
+
+            await new Promise((resolve) => setTimeout(resolve, 100))
           }
 
-          await new Promise((resolve) => setTimeout(resolve, 100))
-        }
+          if (!tool) {
+            throw new Error(
+              'The Inertia tool was not registered; available tools: ' +
+                toolDefinitions().map((candidate) => candidate.label).join(', '),
+            )
+          }
 
-        if (!tool) {
-          throw new Error(
-            'The Inertia tool was not registered; available tools: ' +
-              toolDefinitions().map((candidate) => candidate.label).join(', '),
-          )
-        }
+          await toolbox.selectTool(tool.id)
+          await toolbox.getPanelWhenReady(tool.id)
 
-        await toolbox.selectTool(tool.id)
-        await toolbox.getPanelWhenReady(tool.id)
+          if (!tool.id.includes('webext-devtools-panel')) {
+            throw new Error('The Inertia tool has an unexpected id: ' + tool.id)
+          }
 
-        if (!tool.id.includes('webext-devtools-panel')) {
-          throw new Error('The Inertia tool has an unexpected id: ' + tool.id)
-        }
-
-        if (toolbox.currentToolId !== tool.id) {
-          throw new Error('Firefox selected ' + (toolbox.currentToolId || 'no tool') + ' instead of ' + tool.id)
-        }
+          if (toolbox.currentToolId !== tool.id) {
+            throw new Error('Firefox selected ' + (toolbox.currentToolId || 'no tool') + ' instead of ' + tool.id)
+          }
+        })()
       `,
     )
   })
