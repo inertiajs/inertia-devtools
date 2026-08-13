@@ -1,6 +1,6 @@
 {
   "name": "@inertiajs/devtools-extension",
-  "version": "0.6.5",
+  "version": "0.8.0",
   "license": "MIT",
   "private": true,
   "description": "Browser DevTools panel for inspecting Inertia.js requests, props, routes, and page state.",

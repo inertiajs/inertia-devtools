@@ -52,9 +52,15 @@ Chrome build inherits.
   outright, so `devtools.html` sits at the root of the build to keep one relative path correct in
   both browsers. The panel icon stays empty: Chrome renders the title alone and Firefox falls back to
   the manifest icon.
-- **Panel theme follows the OS, not DevTools.** The panel styles off `prefers-color-scheme`, and
-  Firefox does not map its DevTools theme onto it, so a dark DevTools on a light desktop shows a
-  light panel. The theme toggle in the panel header overrides it.
+- **The panel's `system` theme means a different thing per browser.** It resolves
+  `prefers-color-scheme`, and each browser answers that from somewhere else inside a toolbox. Firefox
+  answers with the DevTools theme, so a light toolbox on a dark desktop renders a light panel, and the
+  desktop never enters into it. Chrome answers with the OS, so its panel follows the desktop live. Two
+  settings that look like they should reach the panel do not: Firefox's "Website appearance", which
+  overrides content documents while a toolbox panel is not one, and the DevTools theme in Chrome. Reading
+  `devtools.panels.themeName` instead was tried and reverted, since in Firefox the media query already
+  reports exactly that, and Chrome offers no `onThemeChanged` to keep a reading fresh. The theme toggle
+  in the panel header overrides all of it.
 - **`world: "MAIN"` sets the version floor.** Firefox honours it from 128. Its manifest asks for 140
   because that is where `data_collection_permissions` is understood. Chrome's floor is 116, where MV3
   service workers and DNR session rules landed.
