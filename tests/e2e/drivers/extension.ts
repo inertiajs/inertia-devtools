@@ -14,36 +14,20 @@ type HydratedTab = {
 export function createExtension(driver: WebDriver, openExtensionPage: OpenExtensionPage) {
   let helperHandle: string | null = null
 
-  const helperPage = async (): Promise<string> => {
-    if (helperHandle) {
-      try {
-        await driver.switchTo().window(helperHandle)
-
-        return helperHandle
-      } catch {
-        helperHandle = null
-      }
-    }
-
-    helperHandle = await openExtensionPage('popup/popup.html')
-
-    return helperHandle
-  }
-
   const evaluate = async <T>(script: string, ...args: unknown[]): Promise<T> => {
     const previousHandle = await driver.getWindowHandle()
-    const helper = await helperPage()
+    const helper = (helperHandle ??= await openExtensionPage('popup/popup.html'))
 
     try {
+      await driver.switchTo().window(helper)
+
       return await driver.executeScript<T>(
         `const extension = globalThis.browser ?? globalThis.chrome
          return (async () => { ${script} })()`,
         ...args,
       )
     } finally {
-      if (previousHandle !== helper) {
-        await driver.switchTo().window(previousHandle)
-      }
+      await driver.switchTo().window(previousHandle)
     }
   }
 
@@ -71,16 +55,13 @@ export function createExtension(driver: WebDriver, openExtensionPage: OpenExtens
   }
 
   const appTabId = async (): Promise<number> => {
-    const tabs = await evaluate<Array<{ id: number; url: string }>>(
-      `return (await extension.tabs.query({})).map((tab) => ({ id: tab.id, url: tab.url }))`,
-    )
-    const tab = tabs.find((candidate) => candidate.url.startsWith(APP_URL))
+    const [tabId] = await appTabIds()
 
-    if (!tab) {
-      throw new Error(`No tab is on ${APP_URL}: ${tabs.map((candidate) => candidate.url).join(', ')}`)
+    if (tabId === undefined) {
+      throw new Error(`No tab is on ${APP_URL}`)
     }
 
-    return tab.id
+    return tabId
   }
 
   const hydrate = async (tabId: number): Promise<HydratedTab> => {

@@ -1,10 +1,8 @@
-import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Builder, LogInspector } from 'selenium-webdriver'
 import { Context, Driver, Options, ServiceBuilder } from 'selenium-webdriver/firefox.js'
 
-const here = dirname(fileURLToPath(import.meta.url))
-const addonPath = resolve(here, '../../../dist-firefox')
+const addonPath = fileURLToPath(new URL('../../../dist-firefox', import.meta.url))
 
 const ADDON_ID = 'devtools@inertiajs.com'
 
@@ -49,14 +47,6 @@ async function openFunctionalFirefoxExtensionPage(driver: Driver, path: string):
   )) as string
 
   await driver.switchTo().window(extensionHandle)
-  await driver.wait(
-    async () =>
-      await driver
-        .executeScript<boolean>('return typeof (globalThis.browser ?? globalThis.chrome)?.runtime === "object"')
-        .catch(() => false),
-    10_000,
-    `The extension page ${url} never exposed its runtime API`,
-  )
 
   return extensionHandle
 }
@@ -71,12 +61,7 @@ async function openFirefoxToolbox(driver: Driver): Promise<void> {
           const { gDevTools } = require('devtools/client/framework/devtools')
           const toolbox = await gDevTools.showToolboxForTab(gBrowser.selectedTab)
           const deadline = Date.now() + 10000
-          const toolDefinitions = () => [
-            ...gDevTools.getToolDefinitionArray(),
-            ...(toolbox.getToolDefinitionArray?.() ?? []),
-            ...(toolbox.additionalToolDefinitions?.values?.() ?? []),
-            ...(toolbox._additionalToolDefinitions?.values?.() ?? []),
-          ]
+          const toolDefinitions = () => [...(toolbox.additionalToolDefinitions?.values?.() ?? [])]
           let tool
 
           while (Date.now() < deadline) {
@@ -148,11 +133,11 @@ export async function launchFirefox() {
     })
 
     return {
-      close: async () => await driver.quit(),
+      close: () => driver.quit(),
       consoleWarnings: async () => [...warnings],
       driver,
-      openExtensionPage: async (path: string) => await openFunctionalFirefoxExtensionPage(driver, path),
-      openRealDevtoolsPanel: async () => await openFirefoxToolbox(driver),
+      openExtensionPage: (path: string) => openFunctionalFirefoxExtensionPage(driver, path),
+      openRealDevtoolsPanel: () => openFirefoxToolbox(driver),
     }
   } catch (error) {
     await driver.quit().catch(() => {})

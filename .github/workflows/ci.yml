@@ -39,9 +39,6 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Build Chrome
-        run: pnpm build:chrome
-
       - name: Build Firefox
         run: pnpm build:firefox
 
@@ -71,8 +68,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.5'
-          tools: composer
-          extensions: mbstring, dom, xml, curl, fileinfo, tokenizer, ctype, filter, session, openssl, intl, bcmath, sqlite3, pdo_sqlite
+          extensions: pdo_sqlite
 
       - name: Install pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9

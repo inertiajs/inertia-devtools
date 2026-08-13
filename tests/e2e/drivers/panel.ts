@@ -15,79 +15,60 @@ export function createPanel(driver: WebDriver, openExtensionPage: OpenExtensionP
       throw new Error('The panel is not open')
     }
 
-    try {
-      await driver.switchTo().window(panelHandle)
-    } catch (error) {
-      panelHandle = null
-
-      throw new Error(`The panel tab is gone: ${error}`)
-    }
+    await driver.switchTo().window(panelHandle)
   }
 
-  const waitForRender = async (): Promise<void> => {
-    await waitForVisible(driver, By.css('#app header'), 'the panel header')
+  const findVisible = async (locator: By, description: string, timeout = 10_000): Promise<WebElement> => {
+    await show()
+
+    return await waitForVisible(driver, locator, description, timeout)
+  }
+
+  const findAll = async (locator: By): Promise<WebElement[]> => {
+    await show()
+
+    return await driver.findElements(locator)
   }
 
   const open = async (tabId: number): Promise<void> => {
     panelHandle = await openExtensionPage(`panel/panel.html?tabId=${tabId}`)
-    await waitForRender()
+    await findVisible(By.css('#app header'), 'the panel header')
   }
 
   const reload = async (): Promise<void> => {
     await show()
     await driver.navigate().refresh()
-    await waitForRender()
+    await findVisible(By.css('#app header'), 'the panel header')
   }
 
-  const waitFor = async (selector: string, timeout = 10_000): Promise<WebElement> => {
-    await show()
+  const waitFor = (selector: string, timeout = 10_000): Promise<WebElement> =>
+    findVisible(By.css(selector), `selector "${selector}"`, timeout)
 
-    return await waitForVisible(driver, By.css(selector), `selector "${selector}"`, timeout)
+  const elements = (selector: string): Promise<WebElement[]> => findAll(By.css(selector))
+
+  const clickLocated = async (locator: By, description: string, timeout = 10_000): Promise<void> => {
+    await (await findVisible(locator, description, timeout)).click()
   }
 
-  const elements = async (selector: string): Promise<WebElement[]> => {
-    await show()
+  const click = (selector: string): Promise<void> => clickLocated(By.css(selector), `selector "${selector}"`)
 
-    return await driver.findElements(By.css(selector))
-  }
+  const clickButton = (text: string): Promise<void> =>
+    clickLocated(By.xpath(`//button[normalize-space()=${xpathLiteral(text)}]`), `button "${text}"`)
 
-  const click = async (selector: string): Promise<void> => {
-    await (await waitFor(selector)).click()
-  }
+  const timelineRows = (): Promise<WebElement[]> => findAll(By.css('li[role="option"]'))
 
-  const clickButton = async (text: string): Promise<void> => {
-    await show()
-    await (
-      await waitForVisible(driver, By.xpath(`//button[normalize-space()=${xpathLiteral(text)}]`), `button "${text}"`)
-    ).click()
-  }
+  const rowsContaining = (text: string): Promise<WebElement[]> =>
+    findAll(By.xpath(`//li[@role="option"][contains(., ${xpathLiteral(text)})]`))
 
-  const timelineRows = async (): Promise<WebElement[]> => {
-    await show()
-
-    return await driver.findElements(By.css('li[role="option"]'))
-  }
-
-  const rowsContaining = async (text: string): Promise<WebElement[]> => {
-    await show()
-
-    return await driver.findElements(By.xpath(`//li[@role="option"][contains(., ${xpathLiteral(text)})]`))
-  }
-
-  const rowIcon = async (rowText: string, ariaLabel: string): Promise<WebElement[]> => {
-    await show()
-
-    return await driver.findElements(
+  const rowIcon = (rowText: string, ariaLabel: string): Promise<WebElement[]> =>
+    findAll(
       By.xpath(
         `//li[@role="option"][contains(., ${xpathLiteral(rowText)})]//*[@aria-label=${xpathLiteral(ariaLabel)}]`,
       ),
     )
-  }
 
   const subtitles = async (path: string): Promise<string[]> => {
-    await show()
-
-    const lines = await driver.findElements(
+    const lines = await findAll(
       By.xpath(
         `//li[@role="option"]//span[normalize-space()=${xpathLiteral(path)}]/following-sibling::span[1]/span[1]`,
       ),
@@ -96,18 +77,12 @@ export function createPanel(driver: WebDriver, openExtensionPage: OpenExtensionP
     return await Promise.all(lines.map((line) => line.getText()))
   }
 
-  const selectRow = async (text: string): Promise<void> => {
-    await show()
-
-    const row = await waitForVisible(
-      driver,
+  const selectRow = (text: string): Promise<void> =>
+    clickLocated(
       By.xpath(`//li[@role="option"][contains(., ${xpathLiteral(text)})]`),
       `timeline row containing "${text}"`,
       15_000,
     )
-
-    await row.click()
-  }
 
   const openDetailTab = async (tab: DetailTab): Promise<void> => {
     await click(`#detail-tab-${tab}`)
@@ -123,16 +98,11 @@ export function createPanel(driver: WebDriver, openExtensionPage: OpenExtensionP
 
   const clearSearch = async (): Promise<void> => {
     const input = await waitFor('input[aria-label="Search requests by URL or component"]')
-    const value = (await input.getAttribute('value')) ?? ''
 
-    for (let index = 0; index < value.length; index++) {
-      await input.sendKeys(Key.BACK_SPACE)
-    }
+    await input.sendKeys(Key.chord(process.platform === 'darwin' ? Key.COMMAND : Key.CONTROL, 'a'), Key.BACK_SPACE)
   }
 
-  const selectFirstRow = async (): Promise<void> => {
-    await (await waitFor('li[role="option"]')).click()
-  }
+  const selectFirstRow = (): Promise<void> => clickLocated(By.css('li[role="option"]'), 'the first timeline row')
 
   const selectFilter = async (filter: TimelineFilter, value: string): Promise<void> => {
     const labels = {

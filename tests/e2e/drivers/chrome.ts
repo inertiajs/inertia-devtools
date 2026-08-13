@@ -1,12 +1,7 @@
 import { createHash } from 'node:crypto'
 import { realpathSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { Builder, logging } from 'selenium-webdriver'
 import { Options } from 'selenium-webdriver/chrome.js'
-
-const here = dirname(fileURLToPath(import.meta.url))
-const extensionDirectory = resolve(here, '../../../dist-chrome')
 
 /**
  * Chrome's id for an unpacked extension.
@@ -32,7 +27,7 @@ export async function launchChrome() {
 
   // Resolve the Chrome-only build here: Firefox test discovery imports this module too, but its CI
   // job intentionally builds only dist-firefox.
-  const extensionPath = realpathSync(extensionDirectory)
+  const extensionPath = realpathSync(new URL('../../../dist-chrome', import.meta.url))
   const extensionOrigin = `chrome-extension://${unpackedExtensionId(extensionPath)}`
   const loggingPrefs = new logging.Preferences()
   const warnings: string[] = []
@@ -58,7 +53,7 @@ export async function launchChrome() {
     await driver.manage().setTimeouts({ pageLoad: 20_000, script: 10_000 })
 
     return {
-      close: async () => await driver.quit(),
+      close: () => driver.quit(),
       consoleWarnings: async () => {
         const entries = await driver.manage().logs().get(logging.Type.BROWSER)
 
@@ -74,14 +69,6 @@ export async function launchChrome() {
 
         await driver.switchTo().newWindow('window')
         await driver.get(url)
-        await driver.wait(
-          async () =>
-            await driver
-              .executeScript<boolean>('return typeof (globalThis.browser ?? globalThis.chrome)?.runtime === "object"')
-              .catch(() => false),
-          10_000,
-          `The extension page ${url} never exposed its runtime API`,
-        )
 
         return await driver.getWindowHandle()
       },

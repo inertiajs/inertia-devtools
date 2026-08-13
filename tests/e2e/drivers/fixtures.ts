@@ -32,7 +32,7 @@ export const test = base.extend<E2EFixtures>({
         await attachFailureEvidence(runtime, testInfo)
       }
     } finally {
-      await runtime.close().catch(() => {})
+      await runtime.close()
     }
   },
 

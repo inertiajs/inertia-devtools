@@ -20,28 +20,25 @@ export function createApp(driver: WebDriver, appHandle: string, readAppTabIds: (
     return await driver.executeScript<T>(`return (async () => { ${script} })()`, ...args)
   }
 
-  const clickLink = async (text: string): Promise<void> => {
-    await show()
-    await (await waitForVisible(driver, By.linkText(text), `link "${text}"`)).click()
-  }
-
-  const clickButton = async (text: string): Promise<void> => {
-    await show()
-    await (
-      await waitForVisible(driver, By.xpath(`//button[normalize-space()=${xpathLiteral(text)}]`), `button "${text}"`)
-    ).click()
-  }
-
-  const click = async (selector: string): Promise<void> => {
-    await show()
-    await (await waitForVisible(driver, By.css(selector), `selector "${selector}"`)).click()
-  }
-
-  const waitFor = async (selector: string, timeout = 10_000): Promise<WebElement> => {
+  const findVisible = async (locator: By, description: string, timeout = 10_000): Promise<WebElement> => {
     await show()
 
-    return await waitForVisible(driver, By.css(selector), `selector "${selector}"`, timeout)
+    return await waitForVisible(driver, locator, description, timeout)
   }
+
+  const clickLocated = async (locator: By, description: string): Promise<void> => {
+    await (await findVisible(locator, description)).click()
+  }
+
+  const clickLink = (text: string): Promise<void> => clickLocated(By.linkText(text), `link "${text}"`)
+
+  const clickButton = (text: string): Promise<void> =>
+    clickLocated(By.xpath(`//button[normalize-space()=${xpathLiteral(text)}]`), `button "${text}"`)
+
+  const click = (selector: string): Promise<void> => clickLocated(By.css(selector), `selector "${selector}"`)
+
+  const waitFor = (selector: string, timeout = 10_000): Promise<WebElement> =>
+    findVisible(By.css(selector), `selector "${selector}"`, timeout)
 
   const waitForAttached = async (selector: string, timeout = 10_000): Promise<WebElement> => {
     await show()
@@ -55,9 +52,7 @@ export function createApp(driver: WebDriver, appHandle: string, readAppTabIds: (
   }
 
   const hoverLink = async (text: string): Promise<void> => {
-    await show()
-
-    const link = await waitForVisible(driver, By.linkText(text), `link "${text}"`)
+    const link = await findVisible(By.linkText(text), `link "${text}"`)
 
     await driver.actions().move({ origin: link }).perform()
   }
