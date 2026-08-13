@@ -97,10 +97,6 @@ async function openFirefoxToolbox(driver: Driver): Promise<void> {
   })
 }
 
-/**
- * Launch one fresh Firefox profile, install the unsigned build temporarily and expose the few
- * Gecko-only operations that the raw-WebDriver fixture needs.
- */
 export async function launchFirefox() {
   process.env.SE_FORCE_BROWSER_DOWNLOAD ??= 'true'
 

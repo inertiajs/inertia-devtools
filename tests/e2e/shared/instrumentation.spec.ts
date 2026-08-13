@@ -34,10 +34,8 @@ test('it stays quiet on a page that boots and warns exactly once when the regist
 
   const tabId = await extension.appTabId()
 
-  // A recorded entry proves the registry attached, so the warning can no longer fire. Waiting on
-  // that beats sleeping out the whole grace window. The healthy page goes first because it is what
-  // proves the reader is alive: asserting an empty list on its own passes just as well when the
-  // console is never read at all.
+  // A recorded entry proves console collection is live before the warning window expires.
+  // Test the healthy page first so an unread console cannot satisfy the empty assertion.
   await extension.waitForDevActive(tabId)
   await extension.waitForEntries(tabId, (list) => list.length === 1)
 

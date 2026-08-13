@@ -3,25 +3,13 @@ import { realpathSync } from 'node:fs'
 import { Builder, logging } from 'selenium-webdriver'
 import { Options } from 'selenium-webdriver/chrome.js'
 
-/**
- * Chrome's id for an unpacked extension.
- *
- * It is the sha256 of the absolute path, first 32 nibbles mapped onto `a`-`p`, which is how the id is
- * known before the browser starts. Playwright reads it off the service worker URL instead, but no
- * such handle exists through WebDriver.
- */
+/** Derive Chrome's unpacked extension ID from its absolute path. */
 function unpackedExtensionId(path: string): string {
   const digest = createHash('sha256').update(path).digest('hex').slice(0, 32)
 
   return [...digest].map((nibble) => String.fromCharCode(97 + Number.parseInt(nibble, 16))).join('')
 }
 
-/**
- * Launch one fresh Chrome for Testing session with the unpacked extension loaded.
- *
- * This functional seam intentionally owns only browser-specific work. The per-test fixture may use
- * the returned WebDriver directly and must call `close` in its teardown.
- */
 export async function launchChrome() {
   process.env.SE_FORCE_BROWSER_DOWNLOAD ??= 'true'
 

@@ -82,12 +82,7 @@ function replyOk(sendResponse: (response: { ok: true }) => void): boolean {
   return false
 }
 
-/**
- * Unlock the tab header for a host that just proved it runs the recorder.
- *
- * Its first response is therefore unstamped; every request made after the rule lands carries the
- * tab UUID.
- */
+/** Allow subsequent requests from a proven recorder host to carry the tab UUID. */
 async function noteProvenHost(origin: string): Promise<void> {
   if (await rememberProvenHost(origin)) {
     await syncAllTabRules()

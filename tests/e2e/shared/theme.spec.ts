@@ -2,13 +2,7 @@ import { expect, test } from '../drivers/fixtures'
 
 const THEME_TOGGLE = 'button[aria-label^="Theme: "]'
 
-/**
- * Following the OS colour scheme is not covered.
- *
- * It needs the emulated `prefers-color-scheme` no WebDriver command exposes: Chrome has it over CDP
- * alone, and Firefox only as a profile preference fixed before the browser starts, so neither can
- * flip it mid-session the way the panel is meant to react to.
- */
+/** OS theme following is omitted because WebDriver cannot change `prefers-color-scheme` at runtime. */
 test('it cycles theme modes and persists the choice across a panel reload', async ({ app, extension, panel }) => {
   await app.open('/devtools')
 

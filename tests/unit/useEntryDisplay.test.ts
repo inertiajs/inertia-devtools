@@ -10,12 +10,6 @@ function hasErrorsFor(propValues: Record<string, unknown> | undefined): boolean 
 }
 
 describe('useEntryDisplay', () => {
-  /**
-   * Inertia sends `errors: {}` on every successful response.
-   *
-   * So the empty cases are the ones that matter: treating an empty container as errors would badge
-   * every row in the timeline, not just the one that failed validation.
-   */
   it('badges an entry only when its errors prop actually holds something', () => {
     expect(hasErrorsFor({ errors: { name: 'The name field is required.' } })).toBe(true)
     expect(hasErrorsFor({ errors: ['The name field is required.'] })).toBe(true)

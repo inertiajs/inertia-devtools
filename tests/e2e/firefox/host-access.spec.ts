@@ -2,14 +2,7 @@ import { expect, test } from '../drivers/fixtures'
 
 const NO_ACCESS_BANNER = 'The DevTools have no access to this site'
 
-/**
- * Only the revoking direction is covered, and only in Firefox, which is why this spec sits outside
- * `shared/`: Chrome grants its host permissions at install time and cannot revoke them.
- *
- * Granting it back needs `permissions.request`, which raises a doorhanger in browser chrome: the
- * call is reachable from the panel behind a real click, but its promise parks until someone answers
- * a prompt no driver can reach, so the test would hang rather than fail.
- */
+/** Only revocation is tested because WebDriver cannot control the permission prompt. */
 test('it banners the panel while host access to the inspected site is revoked', async ({ app, extension, panel }) => {
   await app.open('/devtools')
   await app.waitFor('#greeting')

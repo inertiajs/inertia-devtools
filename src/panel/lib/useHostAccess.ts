@@ -21,13 +21,7 @@ type OptionalApis = {
   }
 }
 
-/**
- * Track whether the extension still holds host access to the inspected tab's origin.
- *
- * Firefox treats host permissions as revocable per site, so an install that recorded fine yesterday
- * can go quiet with nothing else to show for it: no content scripts, no response headers, no tab
- * rule. Nothing else in the panel can tell that apart from an app without a recorder.
- */
+/** Track whether the extension may access the inspected tab's origin. */
 export function useHostAccess(): Readonly<Ref<boolean>> {
   const hasAccess = ref(true)
 

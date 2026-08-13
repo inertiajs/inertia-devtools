@@ -14,10 +14,8 @@ export default defineConfig({
   timeout: 45 * 1000,
   expect: { timeout: 10 * 1000 },
   projects: [{ name: 'chrome', testDir: './shared' }, { name: 'firefox' }],
-  // The extension only captures data when the app runs through the vite dev server: the
-  // `inertia()` vite plugin injects the client devtools instrumentation and real source
-  // locations at dev time, which a production build strips. So serve the app in dev mode:
-  // one server for vite (writes the `hot` file the @vite directive reads), one for Laravel.
+  // The Inertia Vite plugin injects devtools instrumentation only in development.
+  // Serve Vite for instrumentation and Laravel for application routes.
   webServer: [
     {
       // laravel-vite-plugin refuses to start the HMR dev server when CI is set, but the

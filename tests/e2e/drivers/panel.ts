@@ -6,7 +6,6 @@ import { waitForVisible, xpathLiteral } from './waits'
 type DetailTab = 'props' | 'http' | 'route' | 'page'
 type TimelineFilter = 'method' | 'requestType' | 'statusRange'
 
-/** Rendered extension-panel operations backed directly by WebDriver. */
 export function createPanel(driver: WebDriver, openExtensionPage: OpenExtensionPage) {
   let panelHandle: string | null = null
 

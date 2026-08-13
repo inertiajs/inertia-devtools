@@ -4,10 +4,8 @@ import { makeEntry } from '../support'
 
 type Evaluated = { __evaluated: string[] }
 
-// The panel only has a `devtools` namespace when it really is a DevTools panel. The shared e2e suite
-// opens it as a plain extension tab, where this namespace is absent in both browsers, so this click
-// path is reachable from nowhere else. The collector lives on the global because `vi.hoisted` runs
-// before this module's own bindings are initialised.
+// This path exists only inside a real DevTools panel, so it needs component coverage.
+// Store the collector globally because `vi.hoisted` runs before module bindings initialise.
 vi.hoisted(() => {
   const evaluated: string[] = []
 

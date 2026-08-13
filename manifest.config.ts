@@ -38,20 +38,13 @@ export type ExtensionManifest = {
   }
 }
 
-/** Gecko ties storage and the AMO listing to a fixed id, so it can never change. */
+/** Keep the Gecko ID stable because it identifies extension storage and the AMO listing. */
 const FIREFOX_EXTENSION_ID = 'devtools@inertiajs.com'
 
-/**
- * The functional floor is `content_scripts[].world`, honoured by Firefox from 128: page-world.ts has
- * to run in the page's own realm to reach the interceptor registry, and without the key it would
- * land in the isolated world and record nothing.
- *
- * It sits at 140 because that is where `data_collection_permissions` is understood, which AMO
- * requires. 140 is also the current ESR, so the extra distance costs no real users.
- */
+/** Firefox 140 is the first ESR supporting AMO's data-collection declaration. */
 const FIREFOX_MIN_VERSION = '140.0'
 
-/** Chrome floor for MV3 service workers plus the DNR session rules the tab header rides on. */
+/** Chrome 116 supports the required MV3 worker and DNR session rules. */
 const CHROME_MIN_VERSION = '116'
 
 function packageVersion(): string {
@@ -60,14 +53,6 @@ function packageVersion(): string {
   return manifestPackage.version
 }
 
-/**
- * Build the manifest for one browser target.
- *
- * Both stores read the version from here, so package.json stays the single source of it. The two
- * targets differ in three places: Firefox has no MV3 service worker (bug 1573659) and runs the same
- * bundle as an event page, it needs a gecko id with a minimum version, and neither browser accepts
- * the other's version floor key.
- */
 export function buildManifest(target: ExtensionTarget): ExtensionManifest {
   const base = {
     manifest_version: 3 as const,

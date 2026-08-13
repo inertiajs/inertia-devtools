@@ -42,7 +42,6 @@ export async function waitForText(
   )
 }
 
-/** Prove a scalar value remains unchanged during the complete observation window. */
 export async function expectUnchangedFor<T>(
   observe: () => Promise<T>,
   expected: T,

@@ -35,10 +35,7 @@ function stubChrome(openTabIds: number[] = []): void {
   })
 }
 
-/**
- * hosts.ts caches the proven-host set in module scope, and browser.ts reads the global at import
- * time, so both have to be imported after the stub is in place.
- */
+/** Import after stubbing browser globals because both modules cache values at load time. */
 async function load() {
   vi.resetModules()
 

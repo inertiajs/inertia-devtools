@@ -9,12 +9,7 @@ import { buildManifest, type ExtensionTarget } from './manifest.config'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const srcDir = resolve(__dirname, 'src')
 
-/**
- * Resolve the browser this build is for.
- *
- * Neither target is the default. A default would mean one browser owning the bare `pnpm build`, and
- * a build started without a target would quietly produce the other browser's bundle.
- */
+/** Require an explicit target so a bare build cannot emit the wrong browser bundle. */
 function extensionTarget(): ExtensionTarget {
   const requested = process.env.EXTENSION_TARGET
 
@@ -56,14 +51,7 @@ function emitStaticAssets(): PluginOption {
   }
 }
 
-/**
- * Bundle the background script into a single, dependency-free file.
- *
- * A module worker that imports a chunk fails registration outright if that chunk ever
- * fails to load, so everything is inlined and the worker stays a classic script. Firefox has no
- * MV3 service worker at all and loads this same file as an event page, which is another reason it
- * cannot rely on chunks.
- */
+/** Bundle one classic script for Chrome's worker and Firefox's event page. */
 function buildServiceWorker(mode: string): PluginOption {
   return {
     name: 'inertia-devtools-service-worker',
@@ -103,13 +91,7 @@ function buildServiceWorker(mode: string): PluginOption {
   }
 }
 
-/**
- * Bundle each content script as a self-contained IIFE.
- *
- * The manifest loads these as classic scripts, so top-level bindings leak into the world they run
- * in. `page-world` runs in the MAIN world, where a minified `var e` is enough to make a page's own
- * `let e` fail to parse, taking down that script and everything downstream of it.
- */
+/** Bundle content scripts as IIFEs to avoid collisions with page-level bindings. */
 function buildContentScripts(mode: string): PluginOption {
   return {
     name: 'inertia-devtools-content-scripts',

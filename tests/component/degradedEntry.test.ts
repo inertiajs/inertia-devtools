@@ -17,14 +17,7 @@ vi.hoisted(() => {
   }
 })
 
-/**
- * An entry as an older recorder sends it: every optional field absent.
- *
- * `isEntry` accepts this on purpose so a version skew never drops an entry (see `src/guards.ts` and
- * the tolerance pinned in `tests/unit/guards.test.ts`), which means the panel is the thing that has
- * to survive it. The e2e suite can never produce one, since it always runs against the current
- * adapter checkout.
- */
+/** Create a minimal valid entry to test recorder version skew. */
 const DEGRADED: Entry = {
   __meta: {
     id: 'from-an-older-recorder',

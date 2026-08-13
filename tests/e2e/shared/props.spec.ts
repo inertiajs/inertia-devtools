@@ -147,12 +147,7 @@ test('it labels a deferred prop with its group and expands every prop from the t
   expect(await panel.elements(DEFER_BADGE)).toHaveLength(0)
 })
 
-/**
- * Driven off a synthesised entry, since the recorder reports real paths from the machine it runs on.
- *
- * What matters is that a prop links to where that prop was rendered, not to the entry-level render
- * call, so the two have to be distinguishable and only the per-prop ones may appear here.
- */
+/** Use a synthetic entry to distinguish prop and entry render sources. */
 test('it links each prop to its own render source', async ({ app, extension, panel }) => {
   await app.open('/devtools')
 

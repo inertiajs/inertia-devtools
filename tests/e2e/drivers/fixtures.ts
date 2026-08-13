@@ -14,12 +14,7 @@ type E2EFixtures = {
   runtime: BrowserRuntime
 }
 
-/**
- * One fresh Selenium browser and profile per test, selected by the Playwright project.
- *
- * Playwright Test owns only fixture orchestration, assertions and reporting. Selenium owns every
- * browser interaction, and the runtime fixture always closes the exact session it launched.
- */
+/** Give each test a fresh Selenium session selected by its Playwright project. */
 export const test = base.extend<E2EFixtures>({
   // eslint-disable-next-line no-empty-pattern -- Playwright requires a destructured fixture argument
   runtime: async ({}, use, testInfo) => {
@@ -56,7 +51,7 @@ export const test = base.extend<E2EFixtures>({
 
 export const expect = test.expect
 
-/** Capture only the active WebDriver window and small session facts before teardown. */
+/** Capture the active WebDriver window and session metadata before teardown. */
 async function attachFailureEvidence(runtime: BrowserRuntime, testInfo: TestInfo): Promise<void> {
   const errors: string[] = []
   const evidence: Record<string, unknown> = {}

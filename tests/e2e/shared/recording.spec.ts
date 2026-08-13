@@ -4,12 +4,7 @@ import { expectUnchangedFor } from '../drivers/waits'
 
 type TimelineRow = Awaited<ReturnType<Panel['timelineRows']>>[number]
 
-/**
- * Timeline rows badged as a prefetch consumed exactly once.
- *
- * A row consumed twice reads `consumed 2×`, which still contains the single-consumption text, so
- * the substring match behind `rowsContaining` cannot tell the two apart.
- */
+/** Match exact text because a substring also matches entries consumed more than once. */
 async function consumedOnceRows(panel: Panel): Promise<TimelineRow[]> {
   const rows = await panel.timelineRows()
   const texts = await Promise.all(rows.map(async (row) => await row.getText()))

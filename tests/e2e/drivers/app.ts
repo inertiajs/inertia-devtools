@@ -3,7 +3,6 @@ import { waitForLocated, waitForText as waitForLocatorText, waitForVisible, xpat
 
 export const APP_URL = 'http://127.0.0.1:13337'
 
-/** App-tab operations backed directly by WebDriver and one known app window. */
 export function createApp(driver: WebDriver, appHandle: string, readAppTabIds: () => Promise<number[]>) {
   const show = async (): Promise<void> => {
     await driver.switchTo().window(appHandle)
