@@ -118,5 +118,7 @@ jobs:
         with:
           name: e2e-failures-${{ matrix.project }}
           path: tests/e2e/test-results
-          if-no-files-found: error
+          # Discovery/setup failures can happen before Playwright creates its results directory.
+          # The test step has already failed, so do not replace its useful error with an upload error.
+          if-no-files-found: warn
           retention-days: 7

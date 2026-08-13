@@ -6,6 +6,7 @@ import { Builder, logging } from 'selenium-webdriver'
 import { Options } from 'selenium-webdriver/chrome.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
+const extensionDirectory = resolve(here, '../../../dist-chrome')
 
 /**
  * Chrome's id for an unpacked extension.
@@ -20,9 +21,6 @@ function unpackedExtensionId(path: string): string {
   return [...digest].map((nibble) => String.fromCharCode(97 + Number.parseInt(nibble, 16))).join('')
 }
 
-const extensionPath = realpathSync(resolve(here, '../../../dist-chrome'))
-const extensionOrigin = `chrome-extension://${unpackedExtensionId(extensionPath)}`
-
 /**
  * Launch one fresh Chrome for Testing session with the unpacked extension loaded.
  *
@@ -32,6 +30,10 @@ const extensionOrigin = `chrome-extension://${unpackedExtensionId(extensionPath)
 export async function launchChrome() {
   process.env.SE_FORCE_BROWSER_DOWNLOAD ??= 'true'
 
+  // Resolve the Chrome-only build here: Firefox test discovery imports this module too, but its CI
+  // job intentionally builds only dist-firefox.
+  const extensionPath = realpathSync(extensionDirectory)
+  const extensionOrigin = `chrome-extension://${unpackedExtensionId(extensionPath)}`
   const loggingPrefs = new logging.Preferences()
   const warnings: string[] = []
 
