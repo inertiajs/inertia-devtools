@@ -28,6 +28,7 @@ export type ExtensionManifest = {
   }>
   background: { service_worker: string } | { scripts: string[] }
   content_security_policy?: { extension_pages: string }
+  incognito?: 'split'
   minimum_chrome_version?: string
   browser_specific_settings?: {
     gecko: {
@@ -119,5 +120,9 @@ export function buildManifest(target: ExtensionTarget): ExtensionManifest {
     description: 'Inspect every Inertia.js visit in Chrome DevTools: props, requests, routes, and page state.',
     minimum_chrome_version: CHROME_MIN_VERSION,
     background: { service_worker: 'background.js' },
+    // Chrome-only: an incognito window gets its own worker and its own tab identities, so recordings
+    // never cross that boundary. Firefox reads `split` as `not_allowed` (https://bugzil.la/1380812),
+    // which would disable the panel in a private window altogether, so it keeps the spanning default.
+    incognito: 'split',
   }
 }

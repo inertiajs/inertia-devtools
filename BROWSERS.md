@@ -61,6 +61,10 @@ Chrome build inherits.
   `devtools.panels.themeName` instead was tried and reverted, since in Firefox the media query already
   reports exactly that, and Chrome offers no `onThemeChanged` to keep a reading fresh. The theme toggle
   in the panel header overrides all of it.
+- **No split incognito.** Chrome gets `"incognito": "split"`, so a private window runs its own worker
+  and mints its own tab identities and no recording crosses that boundary. Firefox reads `split` as
+  `not_allowed` ([bug 1380812](https://bugzil.la/1380812)), which would disable the panel in a private
+  window outright, so its manifest omits the key and keeps the spanning default.
 - **`world: "MAIN"` sets the version floor.** Firefox honours it from 128. Its manifest asks for 140
   because that is where `data_collection_permissions` is understood. Chrome's floor is 116, where MV3
   service workers and DNR session rules landed.

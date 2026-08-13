@@ -14,6 +14,7 @@ import type { BackgroundMessage } from './types'
 // through to chrome.runtime unchecked.
 const DEVTOOLS_MESSAGE_SOURCE = 'inertia-devtools'
 const INITIAL_ID_TAG_SELECTOR = 'script[data-inertia-devtools-id][type="application/json"]'
+const INITIAL_BASE_PATH_ATTRIBUTE = 'data-inertia-devtools-base-path'
 const REEMIT_PAGE_STATE_MESSAGE = 'devtools:reemit-page-state'
 
 const browser: typeof chrome = (globalThis as { browser?: typeof chrome }).browser ?? globalThis.chrome
@@ -132,33 +133,44 @@ function jsonSafeObject(value: unknown): Record<string, unknown> | null {
   }
 }
 
-function readInitialEntryId(): string | null {
+function readInitialEntry(): { id: string; basePath?: string } | null {
   const tag = document.querySelector<HTMLScriptElement>(INITIAL_ID_TAG_SELECTOR)
 
   if (!tag || !tag.textContent) {
     return null
   }
 
-  try {
-    const parsed: unknown = JSON.parse(tag.textContent)
+  let parsed: unknown
 
-    return typeof parsed === 'string' && parsed.length > 0 ? parsed : null
+  try {
+    parsed = JSON.parse(tag.textContent)
   } catch {
     return null
   }
+
+  if (typeof parsed !== 'string' || parsed.length === 0) {
+    return null
+  }
+
+  // The mount path is only present when the app is not served from the root of its origin,
+  // and it is validated in the service worker before it reaches a fetch URL.
+  const basePath = stringValue(tag.getAttribute(INITIAL_BASE_PATH_ATTRIBUTE))
+
+  return { id: parsed, ...(basePath === null ? {} : { basePath }) }
 }
 
 function sendInitialEntryId(): void {
-  const id = readInitialEntryId()
+  const initial = readInitialEntry()
 
-  if (!id) {
+  if (!initial) {
     return
   }
 
   safeSendMessage({
     type: 'content:initial-id',
-    id,
+    id: initial.id,
     origin: location.origin,
+    ...(initial.basePath === undefined ? {} : { basePath: initial.basePath }),
   })
 }
 

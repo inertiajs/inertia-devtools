@@ -17,7 +17,7 @@ import {
 import { resolveClientVisitBatchId, synthesizeCacheHitEntry, synthesizeClientVisitEntry } from './background/synthesize'
 import { ensureTabRule, migrateTabRule, removeTabRule, syncAllTabRules } from './background/tabRules'
 import { browser } from './browser'
-import { DEVTOOLS_ID_HEADER, REEMIT_PAGE_STATE_MESSAGE } from './constants'
+import { DEVTOOLS_BASE_PATH_HEADER, DEVTOOLS_ID_HEADER, REEMIT_PAGE_STATE_MESSAGE } from './constants'
 import { isBackgroundMessage } from './guards'
 import type {
   ClientVisitSnapshot,
@@ -54,8 +54,10 @@ browser.webRequest.onHeadersReceived.addListener(
       return
     }
 
+    const requestUrl = new URL(url)
+
     // Opt-in dev knob: `?max_entries=N` on the inspected page caps that tab's buffer.
-    const maxEntries = Number(new URL(url).searchParams.get('max_entries'))
+    const maxEntries = Number(requestUrl.searchParams.get('max_entries'))
 
     if (Number.isInteger(maxEntries) && maxEntries > 0) {
       setTabMaxEntries(tabId, maxEntries)
@@ -67,10 +69,10 @@ browser.webRequest.onHeadersReceived.addListener(
       return
     }
 
-    const origin = new URL(url).origin
+    const basePathHeader = responseHeaders.find((header) => header.name.toLowerCase() === DEVTOOLS_BASE_PATH_HEADER)
 
-    void noteProvenHost(origin)
-    void ingestEntry(tabId, origin, idHeader.value)
+    void noteProvenHost(requestUrl.origin)
+    void ingestEntry(tabId, requestUrl.origin, idHeader.value, basePathHeader?.value)
   },
   { urls: ['<all_urls>'] },
   ['responseHeaders'],
@@ -152,7 +154,7 @@ function handleContentMessage(tabId: number, message: ContentToBackgroundMessage
   switch (message.type) {
     case 'content:initial-id':
       void noteProvenHost(message.origin)
-      void ingestEntry(tabId, message.origin, message.id)
+      void ingestEntry(tabId, message.origin, message.id, message.basePath)
       return
 
     case 'content:cache-hit':

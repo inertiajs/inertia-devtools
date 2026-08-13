@@ -13,6 +13,12 @@ export function createApp(driver: WebDriver, appHandle: string, readAppTabIds: (
     await driver.get(`${APP_URL}${path}`)
   }
 
+  /** For the same app served from somewhere else, which is its own origin as far as the worker cares. */
+  const openUrl = async (url: string): Promise<void> => {
+    await show()
+    await driver.get(url)
+  }
+
   const evaluate = async <T>(script: string, ...args: unknown[]): Promise<T> => {
     await show()
 
@@ -87,6 +93,7 @@ export function createApp(driver: WebDriver, appHandle: string, readAppTabIds: (
     hoverLink,
     open,
     openExtra,
+    openUrl,
     waitFor,
     waitForAttached,
     waitForText,

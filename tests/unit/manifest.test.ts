@@ -24,6 +24,11 @@ describe('buildManifest', () => {
 
     expect(firefox.background).toEqual({ scripts: ['background.js'] })
     expect(firefox.minimum_chrome_version).toBeUndefined()
+
+    // Firefox reads `split` as `not_allowed`, which would disable the panel in a private window.
+    expect(chrome.incognito).toBe('split')
+    expect(firefox.incognito).toBeUndefined()
+
     expect(firefox.browser_specific_settings?.gecko).toEqual({
       id: 'devtools@inertiajs.com',
       strict_min_version: '140.0',

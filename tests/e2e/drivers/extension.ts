@@ -44,21 +44,21 @@ export function createExtension(driver: WebDriver, openExtensionPage: OpenExtens
     )
   }
 
-  const appTabIds = async (): Promise<number[]> => {
+  const appTabIds = async (urlPrefix: string = APP_URL): Promise<number[]> => {
     return await evaluate(
       `const appUrl = arguments[0]
        const tabs = await extension.tabs.query({})
 
        return tabs.filter((tab) => (tab.url ?? '').startsWith(appUrl)).map((tab) => tab.id)`,
-      APP_URL,
+      urlPrefix,
     )
   }
 
-  const appTabId = async (): Promise<number> => {
-    const [tabId] = await appTabIds()
+  const appTabId = async (urlPrefix: string = APP_URL): Promise<number> => {
+    const [tabId] = await appTabIds(urlPrefix)
 
     if (tabId === undefined) {
-      throw new Error(`No tab is on ${APP_URL}`)
+      throw new Error(`No tab is on ${urlPrefix}`)
     }
 
     return tabId
@@ -92,15 +92,26 @@ export function createExtension(driver: WebDriver, openExtensionPage: OpenExtens
   ): Promise<Entry[]> => {
     let latest: Entry[] = []
 
-    await driver.wait(
-      async () => {
-        latest = await entries(tabId)
+    // Name what the buffer actually held: which of a spec's several waits timed out is otherwise
+    // guesswork, and a flake that only reproduces under load rarely leaves anything else behind.
+    const describeLatest = (): string =>
+      latest.length === 0
+        ? 'it stayed empty'
+        : `it held ${latest.length}: ${latest.map((entry) => `${entry.__meta.requestType} ${entry.__meta.url}`).join(', ')}`
 
-        return matches(latest)
-      },
-      timeout,
-      `The buffer for tab ${tabId} never matched`,
-    )
+    try {
+      await driver.wait(
+        async () => {
+          latest = await entries(tabId)
+
+          return matches(latest)
+        },
+        timeout,
+        `The buffer for tab ${tabId} never matched`,
+      )
+    } catch (error) {
+      throw new Error(`${error instanceof Error ? error.message : String(error)}; ${describeLatest()}`)
+    }
 
     return latest
   }

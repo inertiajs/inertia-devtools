@@ -121,7 +121,7 @@ export type ClientVisitSnapshot = {
 }
 
 export type ContentToBackgroundMessage =
-  | { type: 'content:initial-id'; id: string; origin: string }
+  | { type: 'content:initial-id'; id: string; origin: string; basePath?: string }
   | {
       type: 'content:cache-hit'
       url: string
