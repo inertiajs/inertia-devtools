@@ -1,9 +1,8 @@
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Builder, LogInspector } from 'selenium-webdriver'
 import { Context, Driver, Options, ServiceBuilder } from 'selenium-webdriver/firefox.js'
+import { evaluate } from './evaluate'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const addonPath = resolve(here, '../../../dist-firefox')
@@ -40,19 +39,17 @@ async function openFunctionalFirefoxExtensionPage(driver: Driver, path: string):
     )
   })
 
-  let extensionHandle: string | undefined
-
-  await driver.wait(
+  const extensionHandle = (await driver.wait(
     async () => {
-      extensionHandle = (await driver.getAllWindowHandles()).find((handle) => !knownHandles.includes(handle))
+      const handle = (await driver.getAllWindowHandles()).find((candidate) => !knownHandles.includes(candidate))
 
-      return extensionHandle !== undefined
+      return handle ?? false
     },
     10_000,
     `The extension page ${url} never became a WebDriver handle`,
-  )
+  )) as string
 
-  await driver.switchTo().window(extensionHandle!)
+  await driver.switchTo().window(extensionHandle)
   await driver.wait(
     async () =>
       await driver
@@ -62,18 +59,17 @@ async function openFunctionalFirefoxExtensionPage(driver: Driver, path: string):
     `The extension page ${url} never exposed its runtime API`,
   )
 
-  return extensionHandle!
+  return extensionHandle
 }
 
 /** Open Firefox's real toolbox and prove that its WebExtension tool is registered and selected. */
 async function openFirefoxToolbox(driver: Driver): Promise<void> {
-  const result = await inFirefoxChromeContext(
-    driver,
-    async () =>
-      (await driver.executeAsyncScript(`
-      const done = arguments[arguments.length - 1]
-
-      void (async () => {
+  await inFirefoxChromeContext(driver, async () => {
+    await evaluate(
+      driver,
+      'The real Firefox DevTools toolbox failed',
+      '',
+      `
         const { require } = ChromeUtils.importESModule('resource://devtools/shared/loader/Loader.sys.mjs')
         const { gDevTools } = require('devtools/client/framework/devtools')
         const toolbox = await gDevTools.showToolboxForTab(gBrowser.selectedTab)
@@ -113,16 +109,9 @@ async function openFirefoxToolbox(driver: Driver): Promise<void> {
         if (toolbox.currentToolId !== tool.id) {
           throw new Error('Firefox selected ' + (toolbox.currentToolId || 'no tool') + ' instead of ' + tool.id)
         }
-      })().then(
-        () => done({ ok: true }),
-        (error) => done({ ok: false, error: String(error) }),
-      )
-    `)) as { ok: true } | { ok: false; error: string },
-  )
-
-  if (!result.ok) {
-    throw new Error(`The real Firefox DevTools toolbox failed: ${result.error}`)
-  }
+      `,
+    )
+  })
 }
 
 /**
@@ -132,14 +121,10 @@ async function openFirefoxToolbox(driver: Driver): Promise<void> {
 export async function launchFirefox() {
   process.env.SE_FORCE_BROWSER_DOWNLOAD ??= 'true'
 
-  const profileDir = await mkdtemp(join(tmpdir(), 'inertia-devtools-firefox-functional-'))
   const warnings: string[] = []
   const options = new Options()
-  let driver: Driver | null = null
-  let inspector: Awaited<ReturnType<typeof LogInspector>> | null = null
 
   options.setBrowserVersion('stable')
-  options.setProfile(profileDir)
   options.setPreference('extensions.webextensions.uuids', JSON.stringify({ [ADDON_ID]: EXTENSION_UUID }))
   options.enableBidi()
 
@@ -147,50 +132,32 @@ export async function launchFirefox() {
     options.addArguments('-headless')
   }
 
-  const service = new ServiceBuilder().addArguments('--allow-system-access')
+  const driver = (await new Builder()
+    .forBrowser('firefox')
+    .setFirefoxOptions(options)
+    .setFirefoxService(new ServiceBuilder().addArguments('--allow-system-access'))
+    .build()) as Driver
 
   try {
-    driver = (await new Builder()
-      .forBrowser('firefox')
-      .setFirefoxOptions(options)
-      .setFirefoxService(service)
-      .build()) as Driver
-
     await driver.manage().setTimeouts({ pageLoad: 20_000, script: 20_000 })
     await driver.installAddon(addonPath, true)
 
-    inspector = await LogInspector(driver)
+    const inspector = await LogInspector(driver)
     await inspector.onConsoleEntry((entry) => {
       if (entry.level === 'warn') {
         warnings.push(entry.text)
       }
     })
 
-    const launchedDriver = driver
-    const launchedInspector = inspector
-    const close = async (): Promise<void> => {
-      try {
-        await launchedInspector.close()
-      } finally {
-        try {
-          await launchedDriver.quit()
-        } finally {
-          await rm(profileDir, { recursive: true, force: true }).catch(() => {})
-        }
-      }
-    }
-
     return {
-      close,
+      close: async () => await driver.quit(),
       consoleWarnings: async () => [...warnings],
-      driver: launchedDriver,
-      openExtensionPage: async (path: string) => await openFunctionalFirefoxExtensionPage(launchedDriver, path),
-      openRealDevtoolsPanel: async () => await openFirefoxToolbox(launchedDriver),
+      driver,
+      openExtensionPage: async (path: string) => await openFunctionalFirefoxExtensionPage(driver, path),
+      openRealDevtoolsPanel: async () => await openFirefoxToolbox(driver),
     }
   } catch (error) {
-    await inspector?.close().catch(() => {})
-    await driver?.quit().catch(() => {})
-    await rm(profileDir, { recursive: true, force: true }).catch(() => {})
+    await driver.quit().catch(() => {})
 
     throw error
   }

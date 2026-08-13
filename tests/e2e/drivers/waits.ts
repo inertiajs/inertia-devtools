@@ -65,3 +65,8 @@ export async function expectUnchangedFor<T>(
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
+
+/** XPath has no escape syntax, so a literal containing quotes has to be concatenated. */
+export function xpathLiteral(text: string): string {
+  return text.includes("'") ? `concat('${text.split("'").join(`', "'", '`)}')` : `'${text}'`
+}

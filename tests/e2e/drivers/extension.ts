@@ -1,6 +1,7 @@
 import type { WebDriver } from 'selenium-webdriver'
 import type { Entry, PageStateSnapshot } from '../../../src/types'
 import { APP_URL } from './app'
+import { evaluate as evaluateScript } from './evaluate'
 
 export type OpenExtensionPage = (path: string) => Promise<string>
 
@@ -35,21 +36,13 @@ export function createExtension(driver: WebDriver, openExtensionPage: OpenExtens
     const helper = await helperPage()
 
     try {
-      const outcome = (await driver.executeAsyncScript(
-        `const done = arguments[arguments.length - 1]
-         const extension = globalThis.browser ?? globalThis.chrome
-         Promise.resolve((async () => { ${script} })()).then(
-           (value) => done({ ok: true, value: value ?? null }),
-           (error) => done({ ok: false, error: String(error) }),
-         )`,
+      return await evaluateScript(
+        driver,
+        'The script threw in an extension page',
+        'const extension = globalThis.browser ?? globalThis.chrome',
+        script,
         ...args,
-      )) as { ok: true; value: T } | { ok: false; error: string }
-
-      if (!outcome.ok) {
-        throw new Error(`The script threw in an extension page: ${outcome.error}`)
-      }
-
-      return outcome.value
+      )
     } finally {
       if (previousHandle !== helper) {
         await driver.switchTo().window(previousHandle)

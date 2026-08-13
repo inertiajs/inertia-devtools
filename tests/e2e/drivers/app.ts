@@ -1,5 +1,6 @@
 import { By, type WebDriver, type WebElement } from 'selenium-webdriver'
-import { waitForLocated, waitForText as waitForLocatorText, waitForVisible } from './waits'
+import { evaluate as evaluateScript } from './evaluate'
+import { waitForLocated, waitForText as waitForLocatorText, waitForVisible, xpathLiteral } from './waits'
 
 export const APP_URL = 'http://127.0.0.1:13337'
 
@@ -17,20 +18,7 @@ export function createApp(driver: WebDriver, appHandle: string, readAppTabIds: (
   const evaluate = async <T>(script: string, ...args: unknown[]): Promise<T> => {
     await show()
 
-    const outcome = (await driver.executeAsyncScript(
-      `const done = arguments[arguments.length - 1]
-       Promise.resolve((async () => { ${script} })()).then(
-         (value) => done({ ok: true, value: value ?? null }),
-         (error) => done({ ok: false, error: String(error) }),
-       )`,
-      ...args,
-    )) as { ok: true; value: T } | { ok: false; error: string }
-
-    if (!outcome.ok) {
-      throw new Error(`The script threw in the app tab: ${outcome.error}`)
-    }
-
-    return outcome.value
+    return await evaluateScript(driver, 'The script threw in the app tab', '', script, ...args)
   }
 
   const clickLink = async (text: string): Promise<void> => {
@@ -114,8 +102,3 @@ export function createApp(driver: WebDriver, appHandle: string, readAppTabIds: (
 }
 
 export type App = ReturnType<typeof createApp>
-
-/** XPath has no escape syntax, so a literal containing quotes has to be concatenated. */
-function xpathLiteral(text: string): string {
-  return text.includes("'") ? `concat('${text.split("'").join(`', "'", '`)}')` : `'${text}'`
-}

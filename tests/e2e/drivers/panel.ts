@@ -1,7 +1,7 @@
 import { By, Key, type WebDriver, type WebElement } from 'selenium-webdriver'
 import { Select } from 'selenium-webdriver/lib/select.js'
 import type { OpenExtensionPage } from './extension'
-import { waitForVisible } from './waits'
+import { waitForVisible, xpathLiteral } from './waits'
 
 type DetailTab = 'props' | 'http' | 'route' | 'page'
 type TimelineFilter = 'method' | 'requestType' | 'statusRange'
@@ -140,7 +140,7 @@ export function createPanel(driver: WebDriver, openExtensionPage: OpenExtensionP
       requestType: 'Filter by request type',
       statusRange: 'Filter by status range',
     } as const
-    const select = await waitFor(`select[aria-label=${cssString(labels[filter])}]`)
+    const select = await waitFor(`select[aria-label=${JSON.stringify(labels[filter])}]`)
 
     await new Select(select).selectByValue(value)
   }
@@ -178,12 +178,3 @@ export function createPanel(driver: WebDriver, openExtensionPage: OpenExtensionP
 }
 
 export type Panel = ReturnType<typeof createPanel>
-
-/** XPath has no escape syntax, so a literal containing quotes has to be concatenated. */
-function xpathLiteral(text: string): string {
-  return text.includes("'") ? `concat('${text.split("'").join(`', "'", '`)}')` : `'${text}'`
-}
-
-function cssString(value: string): string {
-  return JSON.stringify(value)
-}
