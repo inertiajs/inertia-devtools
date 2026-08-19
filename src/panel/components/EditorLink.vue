@@ -3,6 +3,7 @@ import { ExternalLink } from '@lucide/vue'
 import { computed } from 'vue'
 import { buildEditorUrl } from '../lib/editors'
 import { uiStore } from '../stores/ui'
+import AppSchemeAnchor from './AppSchemeAnchor.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -45,11 +46,9 @@ const showPlainText = computed(() => Boolean(props.file) && ui.editor === 'off')
 </script>
 
 <template>
-  <a
+  <AppSchemeAnchor
     v-if="url"
     :href="url"
-    target="_blank"
-    rel="noopener"
     :title="file ?? undefined"
     class="group text-brand-600 focus-visible:outline-brand-500 dark:text-brand-400 inline-flex items-center gap-1 rounded font-mono text-[11px] no-underline focus-visible:outline-2 focus-visible:outline-offset-1"
   >
@@ -60,7 +59,7 @@ const showPlainText = computed(() => Boolean(props.file) && ui.editor === 'off')
       class="size-3 shrink-0 opacity-70 group-hover:opacity-100"
     />
     <span class="truncate group-hover:underline">{{ displayText }}</span>
-  </a>
+  </AppSchemeAnchor>
   <span
     v-else-if="showPlainText"
     :title="file ?? undefined"

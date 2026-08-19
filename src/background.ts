@@ -1,16 +1,14 @@
 import { broadcastDevStatus, broadcastEntryPageState, broadcastRequestActive } from './background/broadcasts'
 import { handleCacheHit } from './background/cacheHit'
-import { forgetProvenHosts, rememberProvenHost } from './background/hosts'
+import { rememberProvenHost } from './background/hosts'
 import { ingestEntry } from './background/ingest'
 import { appendAndBroadcast } from './background/record'
 import {
   applyClientFlash,
-  clearAll,
   clearTabEntries,
   getDevActive,
   getEntries,
   getEvictedCount,
-  getOrigin,
   getPageStatesForTab,
   pairPageStateWithEntry,
   setDevActive,
@@ -25,16 +23,8 @@ import type {
   ClientVisitSnapshot,
   ContentCacheHitMessage,
   ContentToBackgroundMessage,
-  DevToolsTestHooks,
   PageStateSnapshot,
 } from './types'
-
-type DevToolsServiceWorkerGlobal = {
-  __inertiaDevtools: DevToolsTestHooks
-}
-
-// E2E-only hook for tests/devtools/fixtures.ts.
-declare const self: WorkerGlobalScope & DevToolsServiceWorkerGlobal
 
 // Surface worker runtime errors in the worker's own console instead of failing silently.
 const workerScope = self as unknown as {
@@ -88,30 +78,13 @@ browser.webRequest.onHeadersReceived.addListener(
   ['responseHeaders'],
 )
 
-self.__inertiaDevtools = {
-  getBuffer: (tabId) => getEntries(tabId),
-  getOrigin: (tabId) => getOrigin(tabId),
-  getPageStates: (tabId) => getPageStatesForTab(tabId),
-  clearAll: () => clearAll(),
-  ingest: (tabId, origin, id, basePath) => ingestEntry(tabId, origin, id, basePath),
-  forgetHosts: async () => {
-    await forgetProvenHosts()
-    await syncAllTabRules()
-  },
-}
-
 function replyOk(sendResponse: (response: { ok: true }) => void): boolean {
   sendResponse({ ok: true })
 
   return false
 }
 
-/**
- * Unlock the tab header for a host that just proved it runs the recorder.
- *
- * Its first response is therefore unstamped; every request made after the rule lands carries the
- * tab UUID.
- */
+/** Allow subsequent requests from a proven recorder host to carry the tab UUID. */
 async function noteProvenHost(origin: string): Promise<void> {
   if (await rememberProvenHost(origin)) {
     await syncAllTabRules()

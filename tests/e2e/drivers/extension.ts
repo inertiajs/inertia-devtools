@@ -1,0 +1,167 @@
+import type { WebDriver } from 'selenium-webdriver'
+import type { Entry, PageStateSnapshot } from '../../../src/types'
+import { APP_URL } from './app'
+
+export type OpenExtensionPage = (path: string) => Promise<string>
+
+type HydratedTab = {
+  devActive: boolean | null
+  entries: Entry[]
+  evicted: number
+}
+
+/** Extension-page bridge for background messages, tab discovery, and extension storage. */
+export function createExtension(driver: WebDriver, openExtensionPage: OpenExtensionPage) {
+  let helperHandle: string | null = null
+
+  const evaluate = async <T>(script: string, ...args: unknown[]): Promise<T> => {
+    const previousHandle = await driver.getWindowHandle()
+    const helper = (helperHandle ??= await openExtensionPage('popup/popup.html'))
+
+    try {
+      await driver.switchTo().window(helper)
+
+      return await driver.executeScript<T>(
+        `const extension = globalThis.browser ?? globalThis.chrome
+         return (async () => { ${script} })()`,
+        ...args,
+      )
+    } finally {
+      await driver.switchTo().window(previousHandle)
+    }
+  }
+
+  const waitUntilReady = async (timeout = 20_000): Promise<void> => {
+    await driver.wait(
+      async () =>
+        await evaluate<boolean>(
+          `return await extension.runtime
+           .sendMessage({ type: 'panel:hydrate', tabId: -1 })
+           .then(() => true, () => false)`,
+        ).catch(() => false),
+      timeout,
+      'The extension background never answered',
+    )
+  }
+
+  const appTabIds = async (urlPrefix: string = APP_URL): Promise<number[]> => {
+    return await evaluate(
+      `const appUrl = arguments[0]
+       const tabs = await extension.tabs.query({})
+
+       return tabs.filter((tab) => (tab.url ?? '').startsWith(appUrl)).map((tab) => tab.id)`,
+      urlPrefix,
+    )
+  }
+
+  const appTabId = async (urlPrefix: string = APP_URL): Promise<number> => {
+    const [tabId] = await appTabIds(urlPrefix)
+
+    if (tabId === undefined) {
+      throw new Error(`No tab is on ${urlPrefix}`)
+    }
+
+    return tabId
+  }
+
+  const hydrate = async (tabId: number): Promise<HydratedTab> => {
+    return await evaluate(
+      `return await extension.runtime.sendMessage({ type: 'panel:hydrate', tabId: arguments[0] })`,
+      tabId,
+    )
+  }
+
+  const entries = async (tabId: number): Promise<Entry[]> => (await hydrate(tabId)).entries
+
+  const evictedCount = async (tabId: number): Promise<number> => (await hydrate(tabId)).evicted
+
+  const devActive = async (tabId: number): Promise<boolean | null> => (await hydrate(tabId)).devActive
+
+  const waitForDevActive = async (tabId: number, timeout = 15_000): Promise<void> => {
+    await driver.wait(
+      async () => Boolean(await devActive(tabId)),
+      timeout,
+      `The page world never reported dev mode active for tab ${tabId}`,
+    )
+  }
+
+  const waitForEntries = async (
+    tabId: number,
+    matches: (entries: Entry[]) => boolean,
+    timeout = 15_000,
+  ): Promise<Entry[]> => {
+    let latest: Entry[] = []
+
+    // Name what the buffer actually held: which of a spec's several waits timed out is otherwise
+    // guesswork, and a flake that only reproduces under load rarely leaves anything else behind.
+    const describeLatest = (): string =>
+      latest.length === 0
+        ? 'it stayed empty'
+        : `it held ${latest.length}: ${latest.map((entry) => `${entry.__meta.requestType} ${entry.__meta.url}`).join(', ')}`
+
+    try {
+      await driver.wait(
+        async () => {
+          latest = await entries(tabId)
+
+          return matches(latest)
+        },
+        timeout,
+        `The buffer for tab ${tabId} never matched`,
+      )
+    } catch (error) {
+      throw new Error(`${error instanceof Error ? error.message : String(error)}; ${describeLatest()}`)
+    }
+
+    return latest
+  }
+
+  const pageStates = async (tabId: number): Promise<Record<string, PageStateSnapshot>> => {
+    const { pageStates } = await evaluate<{ pageStates: Record<string, PageStateSnapshot> }>(
+      `return await extension.runtime.sendMessage({ type: 'panel:hydrate-page-state', tabId: arguments[0] })`,
+      tabId,
+    )
+
+    return pageStates
+  }
+
+  const appendEntry = async (tabId: number, entry: Entry): Promise<void> => {
+    await evaluate(
+      `await extension.runtime
+         .sendMessage({ type: 'entry:appended', tabId: arguments[0], entry: arguments[1] })
+         .catch(() => {})`,
+      tabId,
+      entry,
+    )
+  }
+
+  const storedValues = async (keys: string[]): Promise<Record<string, unknown>> => {
+    return await evaluate(`return await extension.storage.local.get(arguments[0])`, keys)
+  }
+
+  const storedTabUuid = async (tabId: number): Promise<string | null> => {
+    return await evaluate(
+      `const key = 'tab-' + arguments[0]
+       const stored = await extension.storage.local.get(key)
+
+       return stored[key] ?? null`,
+      tabId,
+    )
+  }
+
+  return {
+    appTabId,
+    appTabIds,
+    appendEntry,
+    devActive,
+    entries,
+    evaluate,
+    evictedCount,
+    pageStates,
+    storedTabUuid,
+    storedValues,
+    waitForDevActive,
+    waitForEntries,
+    waitUntilReady,
+  }
+}

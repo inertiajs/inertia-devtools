@@ -6,7 +6,7 @@ import {
   synthesizeClientVisitEntry,
 } from '../../src/background/synthesize'
 import type { ClientVisitSnapshot, ContentCacheHitMessage, Entry } from '../../src/types'
-import { makeEntry } from './support'
+import { makeEntry } from '../support'
 
 vi.mock('../../src/background/runtimeStore', () => ({
   getEntries: vi.fn(),

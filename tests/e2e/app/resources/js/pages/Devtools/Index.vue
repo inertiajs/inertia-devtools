@@ -118,7 +118,6 @@ function clientFlash(): void {
     <Link href="/devtools/redirect-source" method="post" as="button">Redirect</Link>
     <Link href="/devtools/version-mismatch">Version mismatch</Link>
     <Link href="/devtools/server-error">Server error</Link>
-    <Link href="/devtools/network-error">Network error</Link>
     <button type="button" @click="reloadGreeting">Reload greeting</button>
     <button type="button" @click="reloadFull">Reload full</button>
     <button type="button" @click="visitSameUrl">Visit same URL</button>

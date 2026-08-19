@@ -1,41 +1,57 @@
-import { cpSync, readFileSync } from 'node:fs'
+import { cpSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import vue from '@vitejs/plugin-vue'
 import { build as viteBuild, defineConfig, type PluginOption } from 'vite'
+import { buildManifest, type ExtensionTarget } from './manifest.config'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const srcDir = resolve(__dirname, 'src')
-const distDir = resolve(__dirname, 'dist')
 
-// Static files that ship as-is; Vite copies them into the build untouched.
-const STATIC_ASSETS = ['manifest.json', 'icons']
+/** Require an explicit target so a bare build cannot emit the wrong browser bundle. */
+function extensionTarget(): ExtensionTarget {
+  const requested = process.env.EXTENSION_TARGET
+
+  if (requested !== 'chrome' && requested !== 'firefox') {
+    throw new Error(
+      `EXTENSION_TARGET must be "chrome" or "firefox", got ${requested ? `"${requested}"` : 'nothing'}. ` +
+        'Run "pnpm build:chrome" or "pnpm build:firefox".',
+    )
+  }
+
+  return requested
+}
+
+const target = extensionTarget()
+
+// Both targets build from the same sources, so each one gets its own directory named after it.
+const distDir = resolve(__dirname, `dist-${target}`)
+
+// Static directories that ship as-is; Vite copies them into the build untouched.
+const STATIC_ASSETS = ['icons']
 
 // Scripts the manifest loads by a fixed name, so they stay unhashed at the build root.
 const CONTENT_SCRIPTS = ['content-script', 'page-world']
 
 /**
- * Copy the manifest and icons into the build directory once Vite finishes.
+ * Copy the icons into the build directory and write the target's manifest once Vite finishes.
  */
-function copyStaticAssets(): PluginOption {
+function emitStaticAssets(): PluginOption {
   return {
-    name: 'inertia-devtools-copy-static',
+    name: 'inertia-devtools-static-assets',
     apply: 'build',
     closeBundle() {
       for (const asset of STATIC_ASSETS) {
         cpSync(resolve(__dirname, asset), resolve(distDir, asset), { recursive: true })
       }
+
+      writeFileSync(resolve(distDir, 'manifest.json'), `${JSON.stringify(buildManifest(target), null, 2)}\n`)
     },
   }
 }
 
-/**
- * Bundle the MV3 service worker into a single, dependency-free file.
- *
- * A module worker that imports a chunk fails registration outright if that chunk ever
- * fails to load, so everything is inlined and the worker stays a classic script.
- */
+/** Bundle one classic script for Chrome's worker and Firefox's event page. */
 function buildServiceWorker(mode: string): PluginOption {
   return {
     name: 'inertia-devtools-service-worker',
@@ -66,21 +82,16 @@ function buildServiceWorker(mode: string): PluginOption {
 
       if (/\bimport\s*[({]|\bimport\s+['"]|\bfrom\s*['"]|\bexport[\s{]/.test(code)) {
         throw new Error(
-          'Service worker (background.js) is not self-contained: it contains import/export syntax. ' +
-            'The MV3 worker must bundle to a single dependency-free classic file.',
+          'Background script (background.js) is not self-contained: it contains import/export syntax. ' +
+            'The Chrome MV3 worker and the Firefox event page both need a single dependency-free ' +
+            'classic file.',
         )
       }
     },
   }
 }
 
-/**
- * Bundle each content script as a self-contained IIFE.
- *
- * The manifest loads these as classic scripts, so top-level bindings leak into the world they run
- * in. `page-world` runs in the MAIN world, where a minified `var e` is enough to make a page's own
- * `let e` fail to parse, taking down that script and everything downstream of it.
- */
+/** Bundle content scripts as IIFEs to avoid collisions with page-level bindings. */
 function buildContentScripts(mode: string): PluginOption {
   return {
     name: 'inertia-devtools-content-scripts',
@@ -125,17 +136,17 @@ function buildContentScripts(mode: string): PluginOption {
 export default defineConfig(({ mode }) => ({
   root: srcDir,
   publicDir: false,
-  plugins: [vue(), tailwindcss(), buildServiceWorker(mode), buildContentScripts(mode), copyStaticAssets()],
+  plugins: [vue(), tailwindcss(), buildServiceWorker(mode), buildContentScripts(mode), emitStaticAssets()],
   build: {
     outDir: distDir,
     emptyOutDir: true,
     sourcemap: mode !== 'production',
     minify: mode === 'production',
-    // Extension pages run in modern Chrome, so the module-preload polyfill is dead weight.
+    // Extension pages run in an evergreen browser, so the module-preload polyfill is dead weight.
     modulePreload: false,
     rollupOptions: {
       input: {
-        devtools: resolve(srcDir, 'devtools/devtools.html'),
+        devtools: resolve(srcDir, 'devtools.html'),
         panel: resolve(srcDir, 'panel/panel.html'),
         popup: resolve(srcDir, 'popup/popup.html'),
       },

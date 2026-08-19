@@ -1,13 +1,6 @@
 import { defineConfig } from '@playwright/test'
 
-declare const process: {
-  env: {
-    CI?: boolean
-  }
-}
-
 const runsInCI = !!process.env.CI
-const url = 'http://127.0.0.1:13337'
 const appDir = new URL('./app', import.meta.url).pathname
 
 // The mount path is spelled in `subdirectory-server.php` too, which the built-in server reads
@@ -16,30 +9,23 @@ const subdirectoryPort = 13338
 export const subdirectoryUrl = `http://127.0.0.1:${subdirectoryPort}/mounted`
 
 export default defineConfig({
-  testDir: '.',
-  testMatch: /.*\.spec\.ts$/,
   globalSetup: './global-setup.ts',
   fullyParallel: true,
   workers: runsInCI ? 4 : undefined,
   retries: runsInCI ? 1 : 0,
   forbidOnly: !!runsInCI,
-  timeout: 30 * 1000,
+  // Wider than a Playwright test needs: launching a browser through WebDriver, installing the extension
+  // into it and attaching all happen before a test body starts.
+  timeout: 45 * 1000,
   expect: { timeout: 10 * 1000 },
-  use: {
-    baseURL: url,
-    trace: 'on-first-retry',
-    screenshot: 'only-on-failure',
-  },
-  projects: [{ name: 'chromium' }],
-  // The extension only captures data when the app runs through the vite dev server: the
-  // `inertia()` vite plugin injects the client devtools instrumentation and real source
-  // locations at dev time, which a production build strips. So serve the app in dev mode:
-  // one server for vite (writes the `hot` file the @vite directive reads), one for Laravel.
+  projects: [{ name: 'chrome', testDir: './shared' }, { name: 'firefox' }],
+  // The Inertia Vite plugin injects devtools instrumentation only in development.
+  // Serve Vite for instrumentation and Laravel for application routes.
   webServer: [
     {
       // laravel-vite-plugin refuses to start the HMR dev server when CI is set, but the
       // extension needs it for the devtools instrumentation, so bypass that guard.
-      command: 'pnpm install && LARAVEL_BYPASS_ENV_CHECK=1 pnpm dev',
+      command: 'LARAVEL_BYPASS_ENV_CHECK=1 pnpm dev',
       cwd: appDir,
       url: 'http://localhost:4242/@vite/client',
       reuseExistingServer: true,

@@ -136,7 +136,7 @@ function onClick(): void {
           ><Snail class="mr-0.5 inline size-3 align-[-2px]" /></span
         >{{ formatDuration(meta.serverTimingMs) }}
       </span>
-      <span class="font-mono text-[10px] tabular-nums" :title="fullTime(meta.timestamp)">{{
+      <span data-testid="recorded-at" class="font-mono text-[10px] tabular-nums" :title="fullTime(meta.timestamp)">{{
         clockTime(meta.timestamp)
       }}</span>
     </span>

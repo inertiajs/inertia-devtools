@@ -1,5 +1,6 @@
 node_modules
-dist
+dist-chrome
+dist-firefox
 test-results
 *.zip
 inertia-devtools-extension-*/

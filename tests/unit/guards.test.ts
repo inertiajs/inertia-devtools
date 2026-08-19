@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { isBackgroundMessage, isEntry, isRuntimeBroadcast } from '../../src/guards'
-import { makeEntry } from './support'
+import { makeEntry } from '../support'
 
 describe('isEntry', () => {
   it('accepts a well-formed entry and rejects non-object / structurally-empty shapes', () => {

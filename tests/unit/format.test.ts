@@ -9,7 +9,7 @@ import {
   urlPath,
 } from '../../src/panel/lib/format'
 import type { EntryMeta } from '../../src/types'
-import { makeEntry } from './support'
+import { makeEntry } from '../support'
 
 function meta(overrides: Partial<EntryMeta>): EntryMeta {
   return makeEntry(overrides).__meta

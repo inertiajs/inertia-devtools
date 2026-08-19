@@ -9,6 +9,7 @@ import { TONE } from '../lib/tone'
 import { useEntryDisplay } from '../lib/useEntryDisplay'
 import { entriesStore } from '../stores/entries'
 import { uiStore } from '../stores/ui'
+import AppSchemeAnchor from './AppSchemeAnchor.vue'
 import CopyButton from './CopyButton.vue'
 import EditorLink from './EditorLink.vue'
 import RedirectBadge from './RedirectBadge.vue'
@@ -105,16 +106,14 @@ function navigate(): void {
     </div>
 
     <div class="mt-1.5 flex items-center gap-2">
-      <a
+      <AppSchemeAnchor
         v-if="actionSourceUrl"
         :href="actionSourceUrl"
-        target="_blank"
-        rel="noopener"
         :title="displayUrl"
         class="min-w-0 flex-1 truncate font-mono text-[11px] text-neutral-600 no-underline hover:underline dark:text-neutral-400"
       >
         {{ displayUrl }}
-      </a>
+      </AppSchemeAnchor>
       <span
         v-else
         class="min-w-0 flex-1 truncate font-mono text-[11px] text-neutral-600 dark:text-neutral-400"

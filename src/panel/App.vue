@@ -6,6 +6,7 @@ import EntryDetail from './components/EntryDetail.vue'
 import FilterBar from './components/FilterBar.vue'
 import ThemeToggle from './components/ThemeToggle.vue'
 import Timeline from './components/Timeline.vue'
+import { useHostAccess } from './lib/useHostAccess'
 import { useResizableSidebar } from './lib/useResizableSidebar'
 import { useThemePreference } from './lib/useThemePreference'
 import { entriesStore } from './stores/entries'
@@ -17,6 +18,8 @@ const pageState = pageStateStore
 const ui = uiStore
 
 useThemePreference()
+
+const hasHostAccess = useHostAccess()
 
 // One dot conveys connection + activity, so a request starting or finishing never
 // reflows the toolbar the way an appearing/disappearing text label did.
@@ -126,6 +129,17 @@ async function onRetryHydration(): Promise<void> {
       >
         Retry
       </button>
+    </div>
+
+    <div
+      v-if="!hasHostAccess"
+      role="status"
+      class="flex items-center gap-2 border-b border-amber-300 bg-amber-50 px-3 py-1.5 text-[11px] text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300"
+    >
+      <span class="flex-1">
+        The DevTools have no access to this site, so nothing can be recorded. Grant access from the extensions button in
+        the browser toolbar, then reload the page.
+      </span>
     </div>
 
     <div

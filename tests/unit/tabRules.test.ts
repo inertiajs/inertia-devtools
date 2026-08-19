@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { makeEntry } from '../support'
 
 type SessionRule = { id: number; condition: Record<string, unknown>; action: Record<string, unknown> }
 
@@ -23,22 +24,18 @@ function stubChrome(openTabIds: number[] = []): void {
         },
       },
     },
+    // Deliberately without the ResourceType/RuleActionType/HeaderOperation enum objects: Firefox
+    // ships none of them, so reaching for one has to fail here rather than in a Firefox install.
     declarativeNetRequest: {
       updateSessionRules: async (update: SessionRuleUpdate) => {
         ruleUpdates.push(update)
       },
-      ResourceType: { XMLHTTPREQUEST: 'xmlhttprequest', MAIN_FRAME: 'main_frame', SUB_FRAME: 'sub_frame' },
-      RuleActionType: { MODIFY_HEADERS: 'modifyHeaders' },
-      HeaderOperation: { SET: 'set' },
     },
     tabs: { query: async () => openTabIds.map((id) => ({ id })) },
   })
 }
 
-/**
- * hosts.ts caches the proven-host set in module scope, and browser.ts reads the global at import
- * time, so both have to be imported after the stub is in place.
- */
+/** Import after stubbing browser globals because both modules cache values at load time. */
 async function load() {
   vi.resetModules()
 
@@ -70,7 +67,12 @@ describe('writeDnrRule', () => {
     await rememberProvenHost('http://localhost:13337')
     await ensureTabRule(7)
 
-    expect(lastAddedRule()?.condition).toMatchObject({ tabIds: [7], requestDomains: ['localhost'] })
+    expect(lastAddedRule()?.condition).toMatchObject({
+      tabIds: [7],
+      requestDomains: ['localhost'],
+      resourceTypes: ['xmlhttprequest', 'main_frame', 'sub_frame'],
+    })
+    expect(lastAddedRule()?.action.type).toBe('modifyHeaders')
     expect(lastAddedRule()?.action.requestHeaders).toEqual([
       { header: 'x-inertia-devtools-tab', operation: 'set', value: storage['tab-7'] },
     ])
@@ -140,5 +142,28 @@ describe('syncAllTabRules', () => {
     const domains = ruleUpdates.flatMap((update) => update.addRules ?? []).map((rule) => rule.condition.requestDomains)
 
     expect(domains).toEqual([['app.test'], ['app.test']])
+  })
+})
+
+describe('removeTabRule', () => {
+  beforeEach(() => stubChrome())
+
+  it('drops the recorded buffer and the origin along with the tab rule', async () => {
+    vi.resetModules()
+
+    const { removeTabRule } = await import('../../src/background/tabRules')
+    const { appendEntry, getEntries, getOrigin, setOrigin } = await import('../../src/background/runtimeStore')
+
+    appendEntry(9, makeEntry({ id: 'gone' }))
+    setOrigin(9, 'http://app.test')
+
+    expect(getEntries(9)).toHaveLength(1)
+    expect(getOrigin(9)).toBe('http://app.test')
+
+    await removeTabRule(9)
+
+    // The origin outlives a panel clear on purpose, so only a tab going away may drop it.
+    expect(getEntries(9)).toHaveLength(0)
+    expect(getOrigin(9)).toBeNull()
   })
 })

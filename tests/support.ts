@@ -1,4 +1,4 @@
-import type { Entry, EntryMeta } from '../../src/types'
+import type { Entry, EntryMeta } from '../src/types'
 
 let seq = 0
 

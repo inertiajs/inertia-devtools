@@ -49,14 +49,27 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Build
-        run: pnpm build
+      - name: Build Firefox
+        run: pnpm build:firefox
+
+      # AMO validates the bundle on submission, so catching a manifest it rejects here beats
+      # finding out during a release. Warnings are informational; only errors fail the step.
+      - name: Validate Firefox bundle
+        run: pnpm dlx web-ext@10 lint --source-dir dist-firefox --self-hosted
 
   e2e:
-    name: E2E
+    name: E2E (${{ matrix.project }})
+    # A same-repo PR is already covered by the push event on its branch, so only pushes and fork PRs
+    # need a run.
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     timeout-minutes: 20
     runs-on: ubuntu-24.04
+    needs: build
+
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [chrome, firefox]
 
     steps:
       - name: Checkout
@@ -68,8 +81,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.5'
-          tools: composer
-          extensions: mbstring, dom, xml, curl, fileinfo, tokenizer, ctype, filter, session, openssl, intl, bcmath, sqlite3, pdo_sqlite
+          extensions: pdo_sqlite
 
       - name: Install pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -81,31 +93,41 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+          # The e2e app is a second pnpm project with its own lockfile, so both belong in the key or
+          # its install never comes from the store.
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            tests/e2e/app/pnpm-lock.yaml
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
-
-      # Bootstrap the app as explicit steps (not only inside the Playwright webServer
-      # command) so composer/boot failures surface here with full, untruncated output.
-      # The app runs through the vite dev server (started by Playwright), so no build here.
-      - name: Bootstrap e2e app
-        run: bash tests/e2e/app/setup.sh
+      # No browser or driver install step: Selenium Manager, bundled with selenium-webdriver, fetches
+      # both and pairs them in the browser launchers. This only keeps them between runs.
+      - name: Cache Selenium browsers and drivers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/selenium
+          key: selenium-${{ runner.os }}-${{ matrix.project }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            selenium-${{ runner.os }}-${{ matrix.project }}-
 
       - name: Install e2e app deps
-        run: pnpm --dir tests/e2e/app install
+        run: pnpm --dir tests/e2e/app install --frozen-lockfile
 
       - name: Run e2e tests
-        run: pnpm exec playwright test -c tests/e2e/playwright.config.ts
+        run: pnpm test:e2e:${{ matrix.project }}
 
-      # Screenshots and the first-retry trace are the only way to see what a failing run
-      # actually did: the log names these files but the runner throws them away.
-      - name: Upload Playwright artifacts
+      # The fixture captures the active Selenium URL, title and screenshot plus window handles and
+      # browser warnings before teardown. These attachments are the CI failure evidence because
+      # Playwright does not launch or trace the browser.
+      - name: Upload failure artifacts
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: playwright-results
-          path: test-results/
+          name: e2e-failures-${{ matrix.project }}
+          path: tests/e2e/test-results
+          # Discovery/setup failures can happen before Playwright creates its results directory.
+          # The test step has already failed, so do not replace its useful error with an upload error.
+          if-no-files-found: warn
           retention-days: 7

@@ -3,6 +3,13 @@ import { DEVTOOLS_TAB_HEADER, TAB_STORAGE_KEY_PREFIX } from '../constants'
 import { getProvenHosts } from './hosts'
 import { clearTab, migrateTab } from './runtimeStore'
 
+/** Use wire strings because Firefox does not expose Chrome's runtime enum objects. */
+const RULE_RESOURCE_TYPES = ['xmlhttprequest', 'main_frame', 'sub_frame'] as chrome.declarativeNetRequest.ResourceType[]
+
+const MODIFY_HEADERS = 'modifyHeaders' as chrome.declarativeNetRequest.RuleActionType
+
+const SET_HEADER = 'set' as chrome.declarativeNetRequest.HeaderOperation
+
 function tabStorageKey(tabId: number): string {
   return `${TAB_STORAGE_KEY_PREFIX}${tabId}`
 }
@@ -14,12 +21,7 @@ export async function readTabUuid(tabId: number): Promise<string | null> {
   return typeof stored[key] === 'string' ? stored[key] : null
 }
 
-/**
- * Install the per-tab DNR rule that stamps outgoing requests with the stable tab UUID.
- *
- * The rule only covers hosts that have proven they run the recorder — `requestDomains` is the
- * closest DNR gets to a host allowlist, so it widens to their subdomains too.
- */
+/** Install a tab UUID rule for hosts that have proven recorder support. */
 export async function writeDnrRule(tabId: number, uuid: string): Promise<void> {
   const provenHosts = await getProvenHosts()
 
@@ -41,18 +43,14 @@ export async function writeDnrRule(tabId: number, uuid: string): Promise<void> {
           condition: {
             tabIds: [tabId],
             requestDomains: provenHosts,
-            resourceTypes: [
-              chrome.declarativeNetRequest.ResourceType.XMLHTTPREQUEST,
-              chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
-              chrome.declarativeNetRequest.ResourceType.SUB_FRAME,
-            ],
+            resourceTypes: RULE_RESOURCE_TYPES,
           },
           action: {
-            type: chrome.declarativeNetRequest.RuleActionType.MODIFY_HEADERS,
+            type: MODIFY_HEADERS,
             requestHeaders: [
               {
                 header: DEVTOOLS_TAB_HEADER,
-                operation: chrome.declarativeNetRequest.HeaderOperation.SET,
+                operation: SET_HEADER,
                 value: uuid,
               },
             ],
@@ -65,12 +63,6 @@ export async function writeDnrRule(tabId: number, uuid: string): Promise<void> {
   }
 }
 
-/**
- * Ensure a tab has a stable UUID and matching header-injection rule before traffic starts.
- *
- * The rule is rewritten rather than assumed live: session rules die on browser restart, and the
- * proven-host set they are scoped to grows as hosts reveal a recorder.
- */
 export async function ensureTabRule(tabId: number): Promise<string> {
   const uuid = (await readTabUuid(tabId)) ?? crypto.randomUUID()
 

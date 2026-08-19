@@ -8,4 +8,7 @@ const tabId = browser.devtools.inspectedWindow.tabId
 // the query param; it is a single global key and races between multiple windows.
 browser.storage.session.set({ [SESSION_TAB_ID_KEY]: tabId })
 
-browser.devtools.panels.create('Inertia', '', `panel/panel.html?tabId=${tabId}`, () => {})
+// Firefox resolves panel assets from this page and rejects extension-absolute URLs.
+// Keeping `devtools.html` at the build root makes the relative panel path work in both browsers.
+// An empty icon lets Firefox use the manifest icon while Chrome renders the title.
+browser.devtools.panels.create('Inertia', '', `panel/panel.html?tabId=${tabId}`)
