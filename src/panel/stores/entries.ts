@@ -2,6 +2,7 @@ import { computed, reactive, readonly, toRef } from 'vue'
 import { ENTRY_BUFFER_LIMIT } from '../../constants'
 import type { Entry, EntryFilters, RequestType, StatusRange } from '../../types'
 import * as api from '../lib/api'
+import { describeEntryLayer } from '../lib/layers'
 import { groupTimelineEntries } from '../lib/timeline'
 import { connectionStore } from './connection'
 
@@ -19,6 +20,9 @@ export const REQUEST_TYPE_OPTIONS = [
   'precognition',
   'client-visit',
   'cache-hit',
+  'layer-open',
+  'layer-close',
+  'layer-event',
 ] as const satisfies readonly ('all' | RequestType)[]
 
 // Compile-time guard against option drift: if a new RequestType is added to the union but not
@@ -61,6 +65,7 @@ const state = reactive<EntriesState>({
     method: 'all',
     requestType: 'all',
     statusRange: 'all',
+    layer: 'all',
     search: '',
   },
 })
@@ -92,6 +97,46 @@ function matchesSearch(entry: Entry, search: string): boolean {
 
 const entriesById = computed(() => new Map(state.entries.map((entry) => [entry.__meta.id, entry])))
 
+// Writers stay in timeline order, so the last at a given moment is the last that qualifies.
+const layerIndex = computed(() => {
+  const keys = new Set<string>()
+  const writers = new Map<string, Entry[]>()
+
+  for (const entry of state.entries) {
+    const layer = describeEntryLayer(entry)
+
+    if (!layer?.key) {
+      continue
+    }
+
+    keys.add(layer.key)
+
+    if (layer.kind === 'opened' || layer.kind === 'updated') {
+      const written = writers.get(layer.key)
+
+      if (written) {
+        written.push(entry)
+      } else {
+        writers.set(layer.key, [entry])
+      }
+    }
+  }
+
+  return { keys: [...keys].sort(), writers }
+})
+
+const layerKeys = computed(() => layerIndex.value.keys)
+
+function matchesLayer(entry: Entry, layer: EntryFilters['layer']): boolean {
+  if (layer === 'all') {
+    return true
+  }
+
+  const key = describeEntryLayer(entry)?.key ?? null
+
+  return layer === 'base' ? key === null : key === layer
+}
+
 const filteredEntries = computed(() =>
   state.entries.filter((entry) => {
     const meta = entry.__meta
@@ -105,6 +150,10 @@ const filteredEntries = computed(() =>
     }
 
     if (!matchesStatusRange(meta.status, state.filters.statusRange)) {
+      return false
+    }
+
+    if (!matchesLayer(entry, state.filters.layer)) {
       return false
     }
 
@@ -219,6 +268,23 @@ function select(id: string | null): void {
   state.selectedId = id
 }
 
+// The entry that last opened or rewrote the layer, at or before the given moment.
+function lastLayerWriter(key: string, utime: number): Entry | null {
+  const written = layerIndex.value.writers.get(key)
+
+  if (!written) {
+    return null
+  }
+
+  for (let index = written.length - 1; index >= 0; index--) {
+    if (written[index].__meta.utime <= utime) {
+      return written[index]
+    }
+  }
+
+  return null
+}
+
 function entryById(id: string | null | undefined): Entry | null {
   if (!id) {
     return null
@@ -313,6 +379,7 @@ export const entriesStore = reactive({
   error: readonly(toRef(state, 'error')),
   filters: readonly(toRef(state, 'filters')),
   filteredEntries,
+  layerKeys,
   groupedByBatch,
   selectedEntry,
   beginHydration,
@@ -327,6 +394,7 @@ export const entriesStore = reactive({
   recordEntryUpdated,
   select,
   entryById,
+  lastLayerWriter,
   setRequestActive,
   setFilter,
   setSearch,

@@ -14,7 +14,13 @@ import {
   setDevActive,
   setTabMaxEntries,
 } from './background/runtimeStore'
-import { resolveClientVisitBatchId, synthesizeCacheHitEntry, synthesizeClientVisitEntry } from './background/synthesize'
+import {
+  resolveClientVisitBatchId,
+  synthesizeCacheHitEntry,
+  synthesizeClientVisitEntry,
+  synthesizeLayerChangeEntry,
+  synthesizeLayerEventEntry,
+} from './background/synthesize'
 import { ensureTabRule, migrateTabRule, removeTabRule, syncAllTabRules } from './background/tabRules'
 import { browser } from './browser'
 import { DEVTOOLS_BASE_PATH_HEADER, DEVTOOLS_ID_HEADER, REEMIT_PAGE_STATE_MESSAGE } from './constants'
@@ -23,6 +29,8 @@ import type {
   ClientVisitSnapshot,
   ContentCacheHitMessage,
   ContentToBackgroundMessage,
+  LayerChangeSnapshot,
+  LayerEventSnapshot,
   PageStateSnapshot,
 } from './types'
 
@@ -119,10 +127,25 @@ function recordCacheHit(tabId: number, message: ContentCacheHitMessage): void {
     component: message.component,
     url: message.url,
     props: message.props,
+    ...(message.layers ? { layers: message.layers } : {}),
     timestamp: message.timestamp,
     entryId: entry.__meta.id,
     visitId: message.visitId,
   })
+}
+
+function recordLayerChange(tabId: number, change: LayerChangeSnapshot): void {
+  const entry = synthesizeLayerChangeEntry(change)
+  appendAndBroadcast(tabId, entry)
+
+  broadcastPairedPageState(tabId, { ...change.pageState, entryId: entry.__meta.id })
+}
+
+function recordLayerEvent(tabId: number, event: LayerEventSnapshot): void {
+  const entry = synthesizeLayerEventEntry(event)
+  appendAndBroadcast(tabId, entry)
+
+  broadcastPairedPageState(tabId, { ...event.pageState, entryId: entry.__meta.id })
 }
 
 function recordClientFlash(tabId: number, flash: Record<string, unknown>): void {
@@ -145,6 +168,7 @@ function recordClientVisit(tabId: number, visit: ClientVisitSnapshot): void {
     component: visit.component,
     url: visit.url,
     props: visit.props,
+    ...(visit.layers ? { layers: visit.layers } : {}),
     timestamp: visit.timestamp,
     visitId: visit.visitId,
   })
@@ -167,6 +191,14 @@ function handleContentMessage(tabId: number, message: ContentToBackgroundMessage
 
     case 'content:client-visit':
       recordClientVisit(tabId, message.visit)
+      return
+
+    case 'content:layer-change':
+      recordLayerChange(tabId, message.change)
+      return
+
+    case 'content:layer-event':
+      recordLayerEvent(tabId, message.event)
       return
 
     case 'content:flash-update':
@@ -196,6 +228,8 @@ browser.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =
     case 'content:cache-hit':
     case 'content:page-state':
     case 'content:client-visit':
+    case 'content:layer-change':
+    case 'content:layer-event':
     case 'content:flash-update':
     case 'content:request-active':
     case 'content:dev-status':

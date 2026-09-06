@@ -1,4 +1,4 @@
-import type { BackgroundMessage } from './types'
+import type { BackgroundMessage, LayerChangeTarget, LayerSnapshot, PageStateSnapshot } from './types'
 
 // Bridge page-world events through postMessage because MAIN cannot access chrome.runtime.
 // Keep this script self-contained so MV3 content scripts do not load extra chunks.
@@ -133,6 +133,42 @@ function jsonSafeObject(value: unknown): Record<string, unknown> | null {
   }
 }
 
+// Rebuilt field by field from validated values, which also strips client bookkeeping.
+function sanitizeLayers(value: unknown): LayerSnapshot[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined
+  }
+
+  const layers: LayerSnapshot[] = []
+
+  for (const raw of value) {
+    if (typeof raw !== 'object' || raw === null) {
+      continue
+    }
+
+    const layer = raw as Record<string, unknown>
+    const props = jsonSafeObject(layer.props)
+
+    if (props === null) {
+      continue
+    }
+
+    const flash = layer.flash === undefined ? undefined : (jsonSafeObject(layer.flash) ?? undefined)
+
+    layers.push({
+      id: stringValue(layer.id) ?? '',
+      key: stringValue(layer.key) ?? '',
+      component: nullableString(layer.component),
+      url: nullableString(layer.url),
+      base: nullableString(layer.base),
+      props,
+      ...(flash ? { flash } : {}),
+    })
+  }
+
+  return layers.length > 0 ? layers : undefined
+}
+
 function readInitialEntry(): { id: string; basePath?: string } | null {
   const tag = document.querySelector<HTMLScriptElement>(INITIAL_ID_TAG_SELECTOR)
 
@@ -197,6 +233,8 @@ function forwardCacheHit(message: Record<string, unknown>): void {
     return
   }
 
+  const layers = sanitizeLayers(message.layers)
+
   safeSendMessage({
     type: 'content:cache-hit',
     url,
@@ -204,15 +242,14 @@ function forwardCacheHit(message: Record<string, unknown>): void {
     timestamp,
     component: nullableString(message.component),
     props,
+    ...(layers ? { layers } : {}),
     visitId: optionalString(message.visitId),
   })
 }
 
-function forwardPageState(message: Record<string, unknown>): void {
-  const raw = message.pageState
-
+function sanitizePageState(raw: unknown): PageStateSnapshot | null {
   if (typeof raw !== 'object' || raw === null) {
-    return
+    return null
   }
 
   const pageState = raw as Record<string, unknown>
@@ -220,29 +257,81 @@ function forwardPageState(message: Record<string, unknown>): void {
   const timestamp = finiteNumber(pageState.timestamp)
 
   if (url === null || timestamp === null) {
-    return
+    return null
   }
 
   const props = jsonSafeObject(pageState.props)
 
   if (props === null) {
-    return
+    return null
   }
 
   const flash = pageState.flash === undefined ? undefined : (jsonSafeObject(pageState.flash) ?? undefined)
+  const layers = sanitizeLayers(pageState.layers)
 
-  safeSendMessage({
-    type: 'content:page-state',
-    pageState: {
-      component: nullableString(pageState.component),
-      url,
-      props,
-      timestamp,
-      entryId: optionalString(pageState.entryId),
-      visitId: optionalString(pageState.visitId),
-      ...(flash ? { flash } : {}),
-    },
-  })
+  return {
+    component: nullableString(pageState.component),
+    url,
+    props,
+    timestamp,
+    entryId: optionalString(pageState.entryId),
+    visitId: optionalString(pageState.visitId),
+    ...(flash ? { flash } : {}),
+    ...(layers ? { layers } : {}),
+  }
+}
+
+function forwardPageState(message: Record<string, unknown>): void {
+  const pageState = sanitizePageState(message.pageState)
+
+  if (pageState === null) {
+    return
+  }
+
+  safeSendMessage({ type: 'content:page-state', pageState })
+}
+
+function forwardLayerChange(message: Record<string, unknown>): void {
+  const raw = message.change
+
+  if (typeof raw !== 'object' || raw === null) {
+    return
+  }
+
+  const change = raw as Record<string, unknown>
+  const kind = change.kind
+
+  if (kind !== 'open' && kind !== 'close') {
+    return
+  }
+
+  const pageState = sanitizePageState(change.pageState)
+
+  if (pageState === null || !Array.isArray(change.layers)) {
+    return
+  }
+
+  const layers: LayerChangeTarget[] = []
+
+  for (const target of change.layers) {
+    if (typeof target !== 'object' || target === null) {
+      continue
+    }
+
+    const layer = target as Record<string, unknown>
+
+    layers.push({
+      id: stringValue(layer.id) ?? '',
+      key: stringValue(layer.key) ?? '',
+      component: nullableString(layer.component),
+    })
+  }
+
+  if (layers.length === 0) {
+    return
+  }
+
+  safeSendMessage({ type: 'content:layer-change', change: { kind, layers, pageState } })
 }
 
 function forwardClientVisit(message: Record<string, unknown>): void {
@@ -267,6 +356,8 @@ function forwardClientVisit(message: Record<string, unknown>): void {
     return
   }
 
+  const layers = sanitizeLayers(visit.layers)
+
   safeSendMessage({
     type: 'content:client-visit',
     visit: {
@@ -276,7 +367,44 @@ function forwardClientVisit(message: Record<string, unknown>): void {
       replace: visit.replace === true,
       timestamp,
       props,
+      ...(layers ? { layers } : {}),
+      ...(optionalString(visit.layerKey) ? { layerKey: optionalString(visit.layerKey) } : {}),
       visitId: optionalString(visit.visitId),
+    },
+  })
+}
+
+function jsonSafeValue(value: unknown): unknown {
+  try {
+    return JSON.parse(JSON.stringify(value ?? null))
+  } catch {
+    return null
+  }
+}
+
+function forwardLayerEvent(message: Record<string, unknown>): void {
+  const raw = message.event
+
+  if (typeof raw !== 'object' || raw === null) {
+    return
+  }
+
+  const event = raw as Record<string, unknown>
+  const name = stringValue(event.name)
+  const pageState = sanitizePageState(event.pageState)
+
+  if (name === null || pageState === null) {
+    return
+  }
+
+  safeSendMessage({
+    type: 'content:layer-event',
+    event: {
+      name,
+      from: nullableString(event.from),
+      to: nullableString(event.to),
+      ...(event.payload === undefined ? {} : { payload: jsonSafeValue(event.payload) }),
+      pageState,
     },
   })
 }
@@ -353,6 +481,12 @@ function onPageMessage(event: MessageEvent): void {
       return
     case 'client-visit':
       forwardClientVisit(message)
+      return
+    case 'layer-change':
+      forwardLayerChange(message)
+      return
+    case 'layer-event':
+      forwardLayerEvent(message)
       return
     case 'flash-update':
       forwardFlashUpdate(message)
