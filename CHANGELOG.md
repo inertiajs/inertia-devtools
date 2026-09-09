@@ -1,6 +1,16 @@
 # Release Notes
 
-## [Unreleased](https://github.com/inertiajs/inertia-devtools/compare/v0.7.0...master)
+## [Unreleased](https://github.com/inertiajs/inertia-devtools/compare/v0.8.1...master)
+
+## [v0.8.1](https://github.com/inertiajs/inertia-devtools/compare/v0.7.0...v0.8.1) - 2026-09-09
+
+### What's Changed
+
+* Bump pnpm/action-setup from 6.0.9 to 6.0.10 in the github-actions group by [@dependabot](https://github.com/dependabot)[bot] in https://github.com/inertiajs/inertia-devtools/pull/15
+* Support Chrome private browsing by [@pascalbaljet](https://github.com/pascalbaljet) in https://github.com/inertiajs/inertia-devtools/pull/16
+* Firefox support by [@pascalbaljet](https://github.com/pascalbaljet) in https://github.com/inertiajs/inertia-devtools/pull/17
+
+**Full Changelog**: https://github.com/inertiajs/inertia-devtools/compare/v0.7.0...v0.8.1
 
 ## [v0.7.0](https://github.com/inertiajs/inertia-devtools/compare/v0.6.5...v0.7.0) - 2026-08-11
 
