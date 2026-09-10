@@ -192,3 +192,32 @@ describe('dev status', () => {
     expect(getDevActive(TAB)).toBe(null)
   })
 })
+
+describe('page states carrying a layer stack', () => {
+  beforeEach(() => {
+    clearAll()
+  })
+
+  const LAYER = {
+    id: 'layer-1',
+    key: 'user-form',
+    component: 'Users/Create',
+    url: 'http://localhost/users/create',
+    base: '/users',
+    props: { name: 'Alice' },
+  }
+
+  it('stores the stack with its snapshot and hands it back on hydration', () => {
+    appendEntry(TAB, makeEntry({ id: 'layered' }))
+    pairPageStateWithEntry(TAB, snapshotFor('layered', { layers: [LAYER] }))
+
+    expect(getPageStatesForTab(TAB).layered.layers).toEqual([LAYER])
+  })
+
+  it('leaves a snapshot without layers untouched', () => {
+    appendEntry(TAB, makeEntry({ id: 'plain' }))
+    pairPageStateWithEntry(TAB, snapshotFor('plain'))
+
+    expect('layers' in getPageStatesForTab(TAB).plain).toBe(false)
+  })
+})
