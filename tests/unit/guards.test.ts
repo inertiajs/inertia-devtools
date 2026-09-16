@@ -105,6 +105,52 @@ describe('isBackgroundMessage', () => {
   })
 })
 
+describe('layer message guards', () => {
+  const pageState = { component: 'Users/Index', url: '/users', props: {}, timestamp: 1 }
+  const layer = { id: 'l1', key: 'confirm', component: 'Confirm', url: null, base: '/users', props: {} }
+  const target = { id: 'l1', key: 'confirm', component: 'Confirm' }
+
+  const changeMessage = (change: unknown) => isBackgroundMessage({ type: 'content:layer-change', change })
+  const eventMessage = (event: unknown) => isBackgroundMessage({ type: 'content:layer-event', event })
+
+  it('accepts a well-formed layer change and rejects malformed targets', () => {
+    expect(changeMessage({ kind: 'open', layers: [target], pageState })).toBe(true)
+    expect(changeMessage({ kind: 'close', layers: [target], pageState })).toBe(true)
+    expect(changeMessage({ kind: 'toggle', layers: [target], pageState })).toBe(false)
+    expect(changeMessage({ kind: 'open', layers: [], pageState })).toBe(false)
+    expect(changeMessage({ kind: 'open', layers: [{ id: 'l1' }], pageState })).toBe(false)
+    expect(changeMessage({ kind: 'open', layers: [{ ...target, key: 7 }], pageState })).toBe(false)
+    expect(changeMessage({ kind: 'open', layers: ['not-a-layer'], pageState })).toBe(false)
+  })
+
+  it('checks both ends of a layer event, which the panel renders as text', () => {
+    expect(eventMessage({ name: 'saved', from: 'confirm', to: 'page', pageState })).toBe(true)
+    expect(eventMessage({ name: 'saved', from: null, to: null, pageState })).toBe(true)
+    expect(eventMessage({ name: 'saved', from: { toString: 'evil' }, to: null, pageState })).toBe(false)
+    expect(eventMessage({ name: 'saved', from: null, to: 42, pageState })).toBe(false)
+    expect(eventMessage({ name: 7, from: null, to: null, pageState })).toBe(false)
+  })
+
+  it('validates every layer on a stack, wherever the stack rides', () => {
+    const withLayers = (layers: unknown) =>
+      isBackgroundMessage({ type: 'content:page-state', pageState: { ...pageState, layers } })
+
+    expect(withLayers(undefined)).toBe(true)
+    expect(withLayers([layer])).toBe(true)
+    expect(withLayers([layer, { ...layer, url: 'https://app.test/step-2' }])).toBe(true)
+    expect(withLayers([layer, { ...layer, props: 'nope' }])).toBe(false)
+    expect(withLayers([{ ...layer, base: 5 }])).toBe(false)
+    expect(withLayers('nope')).toBe(false)
+  })
+
+  it('rejects a client visit whose layer key is not a string', () => {
+    const visit = { component: null, url: '/u', method: 'GET', replace: false, timestamp: 1, props: {} }
+
+    expect(isBackgroundMessage({ type: 'content:client-visit', visit: { ...visit, layerKey: 'confirm' } })).toBe(true)
+    expect(isBackgroundMessage({ type: 'content:client-visit', visit: { ...visit, layerKey: 9 } })).toBe(false)
+  })
+})
+
 describe('isRuntimeBroadcast', () => {
   it('validates broadcast variants', () => {
     expect(isRuntimeBroadcast({ type: 'entry:appended', tabId: 1, entry: {} })).toBe(true)

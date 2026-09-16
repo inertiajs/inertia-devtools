@@ -1,6 +1,7 @@
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 import type { Entry } from '../../types'
 import { displayRequestType, entryDeferGroups, formatCache, urlPath } from './format'
+import { describeEntryLayer } from './layers'
 import { entryTone } from './tone'
 
 // Shared display model for an entry, used by both the timeline row and the detail
@@ -11,6 +12,8 @@ export function useEntryDisplay(entry: MaybeRefOrGetter<Entry>) {
   const prefetchConsumption = computed(() => formatCache(meta.value))
   const requestTypeLabel = computed(() => displayRequestType(meta.value))
   const redirectTarget = computed(() => (meta.value.redirectLocation ? urlPath(meta.value.redirectLocation) : null))
+
+  const entryLayer = computed(() => describeEntryLayer(toValue(entry)))
 
   // A deferred request loads one defer group; surface its name (e.g. `deferred (failed)`).
   const deferGroups = computed(() => entryDeferGroups(toValue(entry)))
@@ -26,5 +29,5 @@ export function useEntryDisplay(entry: MaybeRefOrGetter<Entry>) {
     return Array.isArray(errors) ? errors.length > 0 : Object.keys(errors).length > 0
   })
 
-  return { meta, tone, prefetchConsumption, requestTypeLabel, redirectTarget, hasErrors, deferGroups }
+  return { meta, tone, prefetchConsumption, requestTypeLabel, redirectTarget, entryLayer, hasErrors, deferGroups }
 }

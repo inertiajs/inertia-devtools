@@ -4,8 +4,16 @@ import {
   resolveClientVisitBatchId,
   synthesizeCacheHitEntry,
   synthesizeClientVisitEntry,
+  synthesizeLayerChangeEntry,
+  synthesizeLayerEventEntry,
 } from '../../src/background/synthesize'
-import type { ClientVisitSnapshot, ContentCacheHitMessage, Entry } from '../../src/types'
+import type {
+  ClientVisitSnapshot,
+  ContentCacheHitMessage,
+  Entry,
+  LayerChangeSnapshot,
+  LayerEventSnapshot,
+} from '../../src/types'
 import { makeEntry } from '../support'
 
 vi.mock('../../src/background/runtimeStore', () => ({
@@ -88,5 +96,78 @@ describe('resolveClientVisitBatchId', () => {
   it('returns null for a replace visit when there are no prior entries', () => {
     mockedGetEntries.mockReturnValue([])
     expect(resolveClientVisitBatchId(1, visit(true))).toBeNull()
+  })
+})
+
+describe('synthesizeLayerChangeEntry', () => {
+  const pageState = {
+    component: 'Users/Index',
+    url: 'http://localhost/users',
+    props: { users: [] },
+    timestamp: 3000,
+  }
+
+  it('names the opened layer and stands on its own in the timeline', () => {
+    const change: LayerChangeSnapshot = {
+      kind: 'open',
+      layers: [{ id: 'l1', key: 'Confirm', component: 'Confirm' }],
+      pageState,
+    }
+
+    const entry = synthesizeLayerChangeEntry(change)
+
+    expect(entry.__meta.requestType).toBe('layer-open')
+    expect(entry.__meta.component).toBe('Confirm')
+    expect(entry.__meta.url).toBe('http://localhost/users')
+    expect(entry.__meta.batchId).toBeNull()
+    expect(entry.__meta.status).toBe(0)
+    expect(entry.propValues).toEqual({ users: [] })
+    expect(entry.__meta.utime).toBe(3)
+  })
+
+  it('names the deepest layer a close took off, and falls back to the page component', () => {
+    expect(
+      synthesizeLayerChangeEntry({
+        kind: 'close',
+        layers: [
+          { id: 'l1', key: 'Users/Edit', component: 'Users/Edit' },
+          { id: 'l2', key: 'Confirm', component: 'Confirm' },
+        ],
+        pageState,
+      }).__meta,
+    ).toMatchObject({ requestType: 'layer-close', component: 'Users/Edit' })
+
+    expect(synthesizeLayerChangeEntry({ kind: 'close', layers: [], pageState }).__meta.component).toBe('Users/Index')
+  })
+})
+
+describe('synthesizeLayerEventEntry', () => {
+  const pageState = { component: 'Users/Index', url: 'http://localhost/users', props: {}, timestamp: 4000 }
+
+  it('belongs to the layer that emitted, and puts the payload where values are shown', () => {
+    const event: LayerEventSnapshot = {
+      name: 'saved',
+      from: 'Confirm',
+      to: 'Users/Edit',
+      payload: { id: 5 },
+      pageState,
+    }
+
+    const entry = synthesizeLayerEventEntry(event)
+
+    expect(entry.__meta.requestType).toBe('layer-event')
+    expect(entry.__meta.component).toBe('Confirm')
+    expect(entry.__meta.layerKey).toBe('Confirm')
+    expect(entry.__meta.layerEvent).toEqual({ name: 'saved', to: 'Users/Edit' })
+    expect(entry.props).toEqual({ payload: {} })
+    expect(entry.propValues).toEqual({ payload: { id: 5 } })
+  })
+
+  it('records an emit with no payload as carrying no value at all', () => {
+    const entry = synthesizeLayerEventEntry({ name: 'closed', from: 'Confirm', to: null, pageState })
+
+    expect(entry.props).toEqual({})
+    expect(entry.propValues).toEqual({})
+    expect(entry.__meta.layerEvent).toEqual({ name: 'closed', to: null })
   })
 })
