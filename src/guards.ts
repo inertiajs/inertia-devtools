@@ -25,13 +25,34 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
+function isLayerSnapshotShape(value: unknown): boolean {
+  return (
+    isObject(value) &&
+    isString(value.id) &&
+    isString(value.key) &&
+    isNullableString(value.component) &&
+    isNullableString(value.url) &&
+    isNullableString(value.base) &&
+    isObject(value.props)
+  )
+}
+
+function isLayerChangeTargetShape(value: unknown): boolean {
+  return isObject(value) && isString(value.id) && isString(value.key) && isNullableString(value.component)
+}
+
+function isOptionalLayers(value: unknown): boolean {
+  return value === undefined || (Array.isArray(value) && value.every(isLayerSnapshotShape))
+}
+
 function isPageStateShape(value: unknown): boolean {
   return (
     isObject(value) &&
     isNullableString(value.component) &&
     isString(value.url) &&
     isObject(value.props) &&
-    isFiniteNumber(value.timestamp)
+    isFiniteNumber(value.timestamp) &&
+    isOptionalLayers(value.layers)
   )
 }
 
@@ -43,7 +64,30 @@ function isClientVisitShape(value: unknown): boolean {
     isString(value.method) &&
     typeof value.replace === 'boolean' &&
     isFiniteNumber(value.timestamp) &&
-    isObject(value.props)
+    isObject(value.props) &&
+    isOptionalString(value.layerKey) &&
+    isOptionalLayers(value.layers)
+  )
+}
+
+function isLayerChangeShape(value: unknown): boolean {
+  return (
+    isObject(value) &&
+    (value.kind === 'open' || value.kind === 'close') &&
+    Array.isArray(value.layers) &&
+    value.layers.length > 0 &&
+    value.layers.every(isLayerChangeTargetShape) &&
+    isPageStateShape(value.pageState)
+  )
+}
+
+function isLayerEventShape(value: unknown): boolean {
+  return (
+    isObject(value) &&
+    isString(value.name) &&
+    isNullableString(value.from) &&
+    isNullableString(value.to) &&
+    isPageStateShape(value.pageState)
   )
 }
 
@@ -54,7 +98,8 @@ function isCacheHitShape(value: unknown): boolean {
     isString(value.method) &&
     isFiniteNumber(value.timestamp) &&
     isNullableString(value.component) &&
-    isObject(value.props)
+    isObject(value.props) &&
+    isOptionalLayers(value.layers)
   )
 }
 
@@ -76,6 +121,10 @@ export function isBackgroundMessage(value: unknown): value is BackgroundMessage 
       return isPageStateShape(value.pageState)
     case 'content:client-visit':
       return isClientVisitShape(value.visit)
+    case 'content:layer-change':
+      return isLayerChangeShape(value.change)
+    case 'content:layer-event':
+      return isLayerEventShape(value.event)
     case 'content:flash-update':
       return isObject(value.flash) && isFiniteNumber(value.timestamp)
     case 'content:request-active':

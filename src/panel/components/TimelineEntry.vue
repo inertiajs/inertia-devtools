@@ -5,7 +5,7 @@ import type { Entry } from '../../types'
 import { clockTime, formatDuration, fullTime, urlPath } from '../lib/format'
 import { TONE } from '../lib/tone'
 import { useEntryDisplay } from '../lib/useEntryDisplay'
-import RedirectBadge from './RedirectBadge.vue'
+import EntryBadge from './EntryBadge.vue'
 
 const props = defineProps<{
   entry: Entry
@@ -32,9 +32,8 @@ watch(
   },
 )
 
-const { meta, tone, prefetchConsumption, requestTypeLabel, redirectTarget, hasErrors, deferGroups } = useEntryDisplay(
-  () => props.entry,
-)
+const { meta, tone, prefetchConsumption, requestTypeLabel, redirectTarget, entryLayer, hasErrors, deferGroups } =
+  useEntryDisplay(() => props.entry)
 
 const isSlow = computed(() => meta.value.serverTimingMs !== null && meta.value.serverTimingMs >= SLOW_REQUEST_MS)
 
@@ -121,11 +120,21 @@ function onClick(): void {
         >
           errors
         </span>
-        <RedirectBadge
+        <!-- Capped in proportion to the row rather than at a fixed width: the key is the point of
+             the badge, so it takes the room the row has and only gives way when there is none. -->
+        <EntryBadge
+          v-if="entryLayer"
+          tone="layer"
+          class="max-w-[60%] shrink-0 px-1 text-[10px]"
+          :label="entryLayer.label"
+          :title="entryLayer.title"
+        />
+        <EntryBadge
           v-if="redirectTarget"
+          tone="redirect"
           class="max-w-36 shrink-0 px-1 text-[10px]"
-          :target="redirectTarget"
-          :location="meta.redirectLocation"
+          :label="redirectTarget"
+          :title="meta.redirectLocation"
         />
       </span>
     </span>

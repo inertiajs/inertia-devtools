@@ -9,6 +9,9 @@ export type RequestType =
   | 'precognition'
   | 'client-visit'
   | 'cache-hit'
+  | 'layer-open'
+  | 'layer-close'
+  | 'layer-event'
 
 // Mirrors the server-side `Inertia\DevTools\Data\PropType` enum (lowercase wire values).
 // Synthetic client-only request types (client-visit, cache-hit) have no prop-type equivalent.
@@ -30,6 +33,9 @@ export type EntryMeta = {
   consumedAt?: string[]
   visitId?: string | null
   clientVisitMode?: 'push' | 'replace'
+  layerKey?: string | null
+  // `to` is a layer key, 'page' for the base, or null for nobody.
+  layerEvent?: { name: string; to: string | null }
 }
 
 export type MergeDirection = 'append' | 'prepend'
@@ -93,6 +99,8 @@ export type EntryFilters = {
   method: string
   requestType: RequestType | 'all'
   statusRange: StatusRange
+  // 'all', 'base' for the page itself, or the key of one layer.
+  layer: string
   search: string
 }
 
@@ -100,14 +108,50 @@ export type DetailTab = 'props' | 'http' | 'route' | 'page'
 
 export type Theme = 'system' | 'light' | 'dark'
 
+// Page-facing fields of one open layer; client bookkeeping is dropped.
+export type LayerSnapshot = {
+  id: string
+  key: string
+  component: string | null
+  // Null for a client-only ("local") layer, which has no url of its own.
+  url: string | null
+  base: string | null
+  props: Record<string, unknown>
+  flash?: Record<string, unknown>
+}
+
 export type PageStateSnapshot = {
   component: string | null
   url: string
   props: Record<string, unknown>
   flash?: Record<string, unknown>
+  // Bottom first; absent when none are open.
+  layers?: LayerSnapshot[]
   timestamp: number
   entryId?: string
   visitId?: string
+}
+
+export type LayerChangeTarget = {
+  id: string
+  key: string
+  component: string | null
+}
+
+// A stack change no request accounts for; pageState is the stack afterwards.
+export type LayerChangeSnapshot = {
+  kind: 'open' | 'close'
+  layers: LayerChangeTarget[]
+  pageState: PageStateSnapshot
+}
+
+// Both ends are keys: layer ids mean nothing in the panel.
+export type LayerEventSnapshot = {
+  name: string
+  from: string | null
+  to: string | null
+  payload?: unknown
+  pageState: PageStateSnapshot
 }
 
 export type ClientVisitSnapshot = {
@@ -117,6 +161,9 @@ export type ClientVisitSnapshot = {
   replace: boolean
   timestamp: number
   props: Record<string, unknown>
+  layers?: LayerSnapshot[]
+  // The tier the visit wrote to, when it was a layer rather than the page beneath.
+  layerKey?: string
   visitId?: string
 }
 
@@ -129,10 +176,13 @@ export type ContentToBackgroundMessage =
       timestamp: number
       component: string | null
       props: Record<string, unknown>
+      layers?: LayerSnapshot[]
       visitId?: string
     }
   | { type: 'content:page-state'; pageState: PageStateSnapshot }
   | { type: 'content:client-visit'; visit: ClientVisitSnapshot }
+  | { type: 'content:layer-change'; change: LayerChangeSnapshot }
+  | { type: 'content:layer-event'; event: LayerEventSnapshot }
   | { type: 'content:flash-update'; flash: Record<string, unknown>; timestamp: number }
   | { type: 'content:request-active'; active: boolean }
   | { type: 'content:dev-status'; active: boolean }

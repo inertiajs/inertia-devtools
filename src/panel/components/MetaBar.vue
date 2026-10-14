@@ -12,14 +12,16 @@ import { uiStore } from '../stores/ui'
 import AppSchemeAnchor from './AppSchemeAnchor.vue'
 import CopyButton from './CopyButton.vue'
 import EditorLink from './EditorLink.vue'
-import RedirectBadge from './RedirectBadge.vue'
+import EntryBadge from './EntryBadge.vue'
 
 const props = defineProps<{
   entry: Entry
 }>()
 
 const ui = uiStore
-const { meta, tone, prefetchConsumption, requestTypeLabel, redirectTarget } = useEntryDisplay(() => props.entry)
+const { meta, tone, prefetchConsumption, requestTypeLabel, redirectTarget, entryLayer } = useEntryDisplay(
+  () => props.entry,
+)
 
 const displayUrl = computed(() => formatUrl(meta.value.url))
 
@@ -86,11 +88,19 @@ function navigate(): void {
           <Undo2 class="size-3" aria-hidden="true" />
           View prefetch
         </button>
-        <RedirectBadge
+        <EntryBadge
+          v-if="entryLayer"
+          tone="layer"
+          class="max-w-96 px-1.5"
+          :label="entryLayer.label"
+          :title="entryLayer.title"
+        />
+        <EntryBadge
           v-if="redirectTarget"
+          tone="redirect"
           class="max-w-48 px-1.5"
-          :target="redirectTarget"
-          :location="meta.redirectLocation"
+          :label="redirectTarget"
+          :title="meta.redirectLocation"
         />
         <span
           v-if="prefetchConsumption.consumed"

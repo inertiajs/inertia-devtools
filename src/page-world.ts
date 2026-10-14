@@ -1,3 +1,10 @@
+// Marks the file as a module for the unit suite; rollup drops it from the IIFE bundle.
+export {}
+
+// Type-only imports are erased, so this still ships as one self-contained IIFE. Runtime values must be inlined.
+import { createLayerTracker, type LayerChange } from './page-world/layerTracker'
+import type { ClientVisitSnapshot, LayerChangeTarget, LayerSnapshot, PageStateSnapshot } from './types'
+
 type PageWorldCacheHitMessage = {
   source: string
   type: 'cache-hit'
@@ -6,33 +13,42 @@ type PageWorldCacheHitMessage = {
   timestamp: number
   component: string | null
   props: Record<string, unknown>
+  layers?: LayerSnapshot[]
   visitId?: string
 }
 
 type PageWorldPageStateMessage = {
   source: string
   type: 'page-state'
-  pageState: {
-    component: string | null
-    url: string
-    props: Record<string, unknown>
-    timestamp: number
-    entryId?: string
-    visitId?: string
-  }
+  pageState: PageStateSnapshot
 }
 
 type PageWorldClientVisitMessage = {
   source: string
   type: 'client-visit'
-  visit: {
-    component: string | null
-    url: string
-    method: string
-    replace: boolean
-    timestamp: number
-    props: Record<string, unknown>
-    visitId?: string
+  visit: ClientVisitSnapshot
+}
+
+type PageWorldLayerChangeMessage = {
+  source: string
+  type: 'layer-change'
+  change: {
+    kind: 'open' | 'close'
+    layers: LayerChangeTarget[]
+    pageState: PageStateSnapshot
+  }
+}
+
+type PageWorldLayerEventMessage = {
+  source: string
+  type: 'layer-event'
+  event: {
+    name: string
+    from: string | null
+    // A layer key, 'page' for the base beneath them, or null for nobody.
+    to: string | null
+    payload?: unknown
+    pageState: PageStateSnapshot
   }
 }
 
@@ -62,12 +78,15 @@ type PageWorldMessage =
   | PageWorldCacheHitMessage
   | PageWorldPageStateMessage
   | PageWorldClientVisitMessage
+  | PageWorldLayerChangeMessage
+  | PageWorldLayerEventMessage
   | PageWorldFlashUpdateMessage
   | PageWorldRequestActiveMessage
   | PageWorldDevStatusMessage
 
 type InertiaEventDetail = {
   page?: unknown
+  stack?: unknown
   visitId?: unknown
 }
 
@@ -121,6 +140,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function extractPage(detail: InertiaEventDetail | null | undefined): Record<string, unknown> | null {
+  if (isRecord(detail?.stack)) {
+    return detail.stack
+  }
+
   if (isRecord(detail?.page)) {
     return detail.page
   }
@@ -143,6 +166,40 @@ function snapshotProps(props: unknown): Record<string, unknown> | null {
     const clone: unknown = JSON.parse(JSON.stringify(props))
 
     return typeof clone === 'object' && clone !== null ? (clone as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
+}
+
+// Only the page-facing fields; the rest of LayerState is client bookkeeping.
+function snapshotLayer(raw: Record<string, unknown>): LayerSnapshot {
+  const flash = isRecord(raw.flash) ? snapshotProps(raw.flash) : null
+
+  return {
+    id: typeof raw.id === 'string' ? raw.id : '',
+    key: typeof raw.key === 'string' ? raw.key : '',
+    component: typeof raw.component === 'string' ? raw.component : null,
+    // A local layer has no url of its own; keep that distinct from an empty one.
+    url: typeof raw.url === 'string' ? toAbsoluteHref(raw.url) : null,
+    base: typeof raw.base === 'string' ? raw.base : null,
+    props: snapshotProps(raw.props) ?? {},
+    ...(flash ? { flash } : {}),
+  }
+}
+
+function snapshotLayers(value: unknown): LayerSnapshot[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined
+  }
+
+  const layers = value.filter(isRecord).map(snapshotLayer)
+
+  return layers.length > 0 ? layers : undefined
+}
+
+function snapshotValue(value: unknown): unknown {
+  try {
+    return JSON.parse(JSON.stringify(value ?? null))
   } catch {
     return null
   }
@@ -180,6 +237,11 @@ function postPageState(detail: InertiaEventDetail | null | undefined, source: 'd
     return
   }
 
+  const layers = snapshotLayers(page.layers)
+
+  // A `close: true` response drops its layer only after the exit animation, so that navigate looks client-only.
+  layerTracker.pageInstalled(page.close === true)
+
   const message: PageWorldPageStateMessage = {
     source: DEVTOOLS_MESSAGE_SOURCE,
     type: 'page-state',
@@ -187,6 +249,7 @@ function postPageState(detail: InertiaEventDetail | null | undefined, source: 'd
       component: typeof page.component === 'string' ? page.component : null,
       url: toAbsoluteHref(page.url),
       props,
+      ...(layers ? { layers } : {}),
       timestamp: Date.now(),
       entryId: source === 'dom-seed' ? readInitialEntryId() : undefined,
       visitId: typeof detail?.visitId === 'string' ? detail.visitId : undefined,
@@ -270,33 +333,101 @@ window.addEventListener('message', (event: MessageEvent) => {
   }
 })
 
+type NavigatePage = { url?: unknown; component?: unknown; props?: unknown; layers?: unknown }
+
+const layerTracker = createLayerTracker()
+
+function trackedPage(page: NavigatePage, layers: LayerSnapshot[] | undefined) {
+  return {
+    component: typeof page.component === 'string' ? page.component : null,
+    url: toAbsoluteHref(page.url),
+    props: snapshotProps(page.props) ?? {},
+    layers,
+  }
+}
+
+function postCacheHit(page: NavigatePage, visitId: string | undefined, layers: LayerSnapshot[] | undefined): void {
+  const message: PageWorldCacheHitMessage = {
+    source: DEVTOOLS_MESSAGE_SOURCE,
+    type: 'cache-hit',
+    url: toAbsoluteHref(page.url),
+    method: 'GET',
+    timestamp: Date.now(),
+    component: typeof page.component === 'string' ? page.component : null,
+    props: snapshotProps(page.props) ?? {},
+    ...(layers ? { layers } : {}),
+    visitId,
+  }
+
+  safePostMessage(message)
+}
+
+function postLayerChange(change: LayerChange | null): void {
+  if (change === null) {
+    return
+  }
+
+  // A stack change is a step of its own, not a follow-up to whatever visit ran last.
+  lastParentId = null
+
+  const message: PageWorldLayerChangeMessage = {
+    source: DEVTOOLS_MESSAGE_SOURCE,
+    type: 'layer-change',
+    change: {
+      kind: change.kind,
+      layers: change.layers,
+      pageState: layerTracker.pageState(),
+    },
+  }
+
+  safePostMessage(message)
+}
+
+function postLayerEvent(from: string, to: string | null, name: string, payload: unknown): void {
+  const message: PageWorldLayerEventMessage = {
+    source: DEVTOOLS_MESSAGE_SOURCE,
+    type: 'layer-event',
+    event: {
+      name,
+      from: layerTracker.keyById(from) ?? null,
+      to: to === null ? null : (layerTracker.keyById(to) ?? 'page'),
+      ...(payload === undefined ? {} : { payload: snapshotValue(payload) }),
+      pageState: layerTracker.pageState(),
+    },
+  }
+
+  safePostMessage(message)
+}
+
 document.addEventListener('inertia:navigate', (event) => {
   const detail = (
     event as CustomEvent<{
-      page?: { url?: unknown; component?: unknown; props?: unknown }
+      page?: NavigatePage
       cached?: boolean
       visitId?: string
     }>
   ).detail
 
-  if (!detail?.cached || !detail.page) {
+  const page = detail?.page
+
+  if (!page) {
     return
   }
 
-  const href = toAbsoluteHref(detail.page.url)
-  const props = snapshotProps(detail.page.props) ?? {}
-  const message: PageWorldCacheHitMessage = {
-    source: DEVTOOLS_MESSAGE_SOURCE,
-    type: 'cache-hit',
-    url: href,
-    method: 'GET',
-    timestamp: Date.now(),
-    component: typeof detail.page.component === 'string' ? detail.page.component : null,
-    props,
-    visitId: detail.visitId,
+  const layers = snapshotLayers(page.layers)
+
+  const change = layerTracker.navigated(trackedPage(page, layers), {
+    cached: detail.cached === true,
+    hasVisitId: typeof detail.visitId === 'string',
+    requestActive: requestDepth > 0,
+  })
+
+  if (detail.cached) {
+    postCacheHit(page, detail.visitId, layers)
+    return
   }
 
-  safePostMessage(message)
+  postLayerChange(change)
 })
 
 document.addEventListener('inertia:success', (event) => {
@@ -356,7 +487,7 @@ document.addEventListener('inertia:flash', (event) => {
 document.addEventListener('inertia:clientVisit', (event) => {
   const detail = (
     event as CustomEvent<{
-      page?: { url?: unknown; component?: unknown; props?: unknown }
+      page?: { url?: unknown; component?: unknown; props?: unknown; layers?: unknown }
       replace?: boolean
       visitId?: string
     }>
@@ -375,6 +506,11 @@ document.addEventListener('inertia:clientVisit', (event) => {
   }
 
   const href = toAbsoluteHref(page.url)
+  const layers = snapshotLayers(page.layers)
+
+  // A replacing client visit installs its page without a navigate, so record it here too.
+  const layerKey = layerTracker.clientVisited(trackedPage(page, layers))
+
   const message: PageWorldClientVisitMessage = {
     source: DEVTOOLS_MESSAGE_SOURCE,
     type: 'client-visit',
@@ -385,6 +521,8 @@ document.addEventListener('inertia:clientVisit', (event) => {
       replace: detail.replace === true,
       timestamp: Date.now(),
       props,
+      ...(layers ? { layers } : {}),
+      ...(layerKey ? { layerKey } : {}),
       visitId: detail.visitId,
     },
   }
@@ -413,6 +551,9 @@ type LineageVisit = {
   prefetch?: boolean
   deferredProps?: boolean
   poll?: boolean
+  // An opening visit names a layer that does not exist yet, so only `layerOwner` is sent.
+  layerId?: string
+  layerOwner?: string
 }
 
 type LineageRequestConfig = {
@@ -423,9 +564,17 @@ type LineageResponse = {
   headers?: Record<string, string>
 }
 
+// A rewrite of an open layer is not announced: the response that rewrote it is its own entry.
+type CoreLayerEvent =
+  | { type: 'opened'; layer: Record<string, unknown> }
+  | { type: 'closed'; layer: Record<string, unknown> }
+  | { type: 'event'; from: string; to: string | null; name: string; payload?: unknown }
+
 type InertiaInterceptors = {
   onVisitRequest: (handler: (visit: LineageVisit, config: LineageRequestConfig) => LineageRequestConfig) => () => void
   onVisitResponse: (handler: (visit: LineageVisit, response: LineageResponse) => LineageResponse) => () => void
+  // Optional, so a core that predates it still registers the rest.
+  onLayerEvent?: (handler: (event: CoreLayerEvent) => void) => () => void
 }
 
 let lastParentId: string | null = null
@@ -486,6 +635,26 @@ function registerLineageInterceptors(interceptors: InertiaInterceptors): void {
     lastParentId = readInitialEntryId() ?? null
   }
 
+  if (typeof interceptors.onLayerEvent === 'function') {
+    layerTracker.hookRegistered()
+
+    interceptors.onLayerEvent((event) => {
+      if (event.type === 'event') {
+        postLayerEvent(event.from, event.to, event.name, event.payload)
+
+        return
+      }
+
+      postLayerChange(
+        layerTracker.announced(
+          event.type === 'opened' ? 'open' : 'close',
+          snapshotLayer(event.layer),
+          requestDepth > 0,
+        ),
+      )
+    })
+  }
+
   interceptors.onVisitRequest((visit, config) => {
     const headers = config.headers ?? (config.headers = {})
 
@@ -499,6 +668,16 @@ function registerLineageInterceptors(interceptors: InertiaInterceptors): void {
 
     if (visit.poll) {
       headers['X-Inertia-Devtools-Poll'] = '1'
+    }
+
+    if (visit.layerOwner) {
+      headers['X-Inertia-Devtools-Layer-Owner'] = '1'
+    } else if (visit.layerId) {
+      const layerKey = layerTracker.keyById(visit.layerId)
+
+      if (layerKey) {
+        headers['X-Inertia-Devtools-Layer'] = layerKey
+      }
     }
 
     if (isFullNavigation(visit)) {
