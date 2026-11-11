@@ -190,6 +190,77 @@ describe('content-script trust boundary', () => {
     })
   })
 
+  it('forwards the layer stack, rebuilt from the fields the panel shows', async () => {
+    const { sendMessage, fire } = setup()
+    await importContentScript()
+
+    fire({
+      source: SOURCE,
+      type: 'page-state',
+      pageState: {
+        component: 'Users/Index',
+        url: '/users',
+        timestamp: 1,
+        props: {},
+        layers: [
+          {
+            id: 'l1',
+            key: 'user-form',
+            component: 'Users/Create',
+            url: '/users/create',
+            base: '/users',
+            props: { name: 'Alice' },
+            flash: { message: 'Saved' },
+            renderKey: 3,
+            standalone: false,
+            entries: 1,
+            owner: 'page',
+            local: false,
+            preservesUrl: false,
+          },
+          'not-a-layer',
+        ],
+      },
+    })
+
+    expect(sendMessage.mock.calls[0][0]).toEqual({
+      type: 'content:page-state',
+      pageState: {
+        component: 'Users/Index',
+        url: '/users',
+        timestamp: 1,
+        props: {},
+        layers: [
+          {
+            id: 'l1',
+            key: 'user-form',
+            component: 'Users/Create',
+            url: '/users/create',
+            base: '/users',
+            props: { name: 'Alice' },
+            flash: { message: 'Saved' },
+          },
+        ],
+      },
+    })
+  })
+
+  it('omits the layer stack entirely when the page has none open', async () => {
+    const { sendMessage, fire } = setup()
+    await importContentScript()
+
+    fire({ source: SOURCE, type: 'page-state', pageState: { component: 'Home', url: '/', timestamp: 1, props: {} } })
+    fire({
+      source: SOURCE,
+      type: 'page-state',
+      pageState: { component: 'Home', url: '/', timestamp: 2, props: {}, layers: [] },
+    })
+
+    expect(sendMessage.mock.calls.every((call) => !('layers' in (call[0] as { pageState: object }).pageState))).toBe(
+      true,
+    )
+  })
+
   it('drops a page-state whose inner shape is malformed', async () => {
     const { sendMessage, fire } = setup()
     await importContentScript()
@@ -198,6 +269,60 @@ describe('content-script trust boundary', () => {
     fire({ source: SOURCE, type: 'page-state', pageState: null })
 
     expect(sendMessage).not.toHaveBeenCalled()
+  })
+
+  it('forwards a layer change, and drops one with an unknown kind or no affected layer', async () => {
+    const { sendMessage, fire } = setup()
+    await importContentScript()
+
+    const pageState = { component: 'Users/Index', url: '/users', timestamp: 1, props: {} }
+
+    fire({ source: SOURCE, type: 'layer-change', change: { kind: 'sideways', layers: [{ id: 'l1' }], pageState } })
+    fire({ source: SOURCE, type: 'layer-change', change: { kind: 'open', layers: ['nope'], pageState } })
+    fire({ source: SOURCE, type: 'layer-change', change: { kind: 'open', layers: [{ id: 'l1' }], pageState: null } })
+
+    expect(sendMessage).not.toHaveBeenCalled()
+
+    fire({
+      source: SOURCE,
+      type: 'layer-change',
+      change: {
+        kind: 'close',
+        layers: [{ id: 'l1', key: 'Confirm', component: 'Confirm', owner: 'page' }],
+        pageState,
+      },
+    })
+
+    expect(sendMessage).toHaveBeenCalledWith({
+      type: 'content:layer-change',
+      change: {
+        kind: 'close',
+        layers: [{ id: 'l1', key: 'Confirm', component: 'Confirm' }],
+        pageState,
+      },
+    })
+  })
+
+  it('forwards an emitted event, payload and all, and drops one with no name', async () => {
+    const { sendMessage, fire } = setup()
+    await importContentScript()
+
+    const pageState = { component: 'Users/Index', url: '/users', timestamp: 1, props: {} }
+
+    fire({ source: SOURCE, type: 'layer-event', event: { from: 'Confirm', to: null, pageState } })
+
+    expect(sendMessage).not.toHaveBeenCalled()
+
+    fire({
+      source: SOURCE,
+      type: 'layer-event',
+      event: { name: 'saved', from: 'Confirm', to: 'page', payload: { id: 5, fn: () => 'nope' }, pageState },
+    })
+
+    expect(sendMessage).toHaveBeenCalledWith({
+      type: 'content:layer-event',
+      event: { name: 'saved', from: 'Confirm', to: 'page', payload: { id: 5 }, pageState },
+    })
   })
 
   it('coerces request-active to a strict boolean', async () => {

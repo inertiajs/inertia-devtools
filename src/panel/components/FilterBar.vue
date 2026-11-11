@@ -47,6 +47,20 @@ function onSearchInput(event: Event): void {
     </SelectField>
 
     <SelectField
+      v-if="entries.layerKeys.length > 0"
+      name="layer"
+      aria-label="Filter by layer"
+      :model-value="entries.filters.layer"
+      @change="(value) => entries.setFilter('layer', value)"
+    >
+      <option value="all">Layer: all</option>
+      <option value="base">Layer: base page</option>
+      <option v-for="key in entries.layerKeys" :key="key" :value="key">
+        {{ key }}
+      </option>
+    </SelectField>
+
+    <SelectField
       name="statusRange"
       aria-label="Filter by status range"
       :model-value="entries.filters.statusRange"

@@ -1,4 +1,4 @@
-import type { Entry, EntryMeta } from '../../types'
+import type { Entry, EntryMeta, RequestType } from '../../types'
 
 type FormattedCache = {
   consumed: boolean
@@ -42,12 +42,19 @@ export function entryDeferGroups(entry: Entry): string[] {
   return [...groups]
 }
 
+// A layer stack change has no request behind it, so its type reads as what happened instead.
+const LAYER_CHANGE_LABELS: Partial<Record<RequestType, string>> = {
+  'layer-open': 'layer opened (local)',
+  'layer-close': 'layer closed',
+  'layer-event': 'layer event',
+}
+
 export function displayRequestType(meta: EntryMeta): string {
   if (meta.requestType === 'client-visit') {
     return `client-visit (${meta.clientVisitMode ?? 'push'})`
   }
 
-  return meta.requestType
+  return LAYER_CHANGE_LABELS[meta.requestType] ?? meta.requestType
 }
 
 export function formatDuration(ms: number | null | undefined): string {
